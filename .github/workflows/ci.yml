@@ -35,13 +35,13 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Install Dependencies
-        run: npm ci
-
       - name: Verify Lockfile Sync
         run: |
           npm install --package-lock-only
           git diff --exit-code package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
 
       - name: Verify VSCode Consistency
         run: node .github/workflows/ci-check-vscode.js
