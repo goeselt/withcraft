@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Verifies that engines.vscode and @types/vscode share the same version.
 // Run locally: node .github/workflows/ci-check-vscode.js
+/* eslint-disable no-console -- standalone CLI check; console is its reporting interface */
 'use strict'
 
 const pkg = require('../../package.json')
