@@ -42,7 +42,7 @@ jobs:
 
       - id: intent
         name: Intent Release
-        uses: goeselt/intent@10ce9d916bb1af60c48ff1bc03a99348aede7f1a # v1.1.4
+        uses: goeselt/intent@e51fe139644bfa27735dabeffc71251effb594be # v1.2.1
         with:
           initial-version: '1.4.0'
 
@@ -87,7 +87,7 @@ jobs:
 
       - name: Commit Version Bump
         if: steps.intent.outputs.release-needed == 'true'
-        uses: goeselt/scribe@4628c4f2ebb92e31e989b220b1a82ba5132d0a3f # v1.2.1
+        uses: goeselt/scribe@732387b7af0ebcabc4653253cb5865a31a3cd485 # v1.2.2
         with:
           files: |
             package.json
@@ -100,7 +100,7 @@ jobs:
 
       - name: Release
         if: steps.intent.outputs.release-needed == 'true'
-        uses: goeselt/dispatch@537bfa0724a8de8b2a8e282458944a9cf368f740 # v1.2.3
+        uses: goeselt/dispatch@177d405019f83bf8728e3a132e2b2565d6eacd47 # v1.3.5
         with:
           release-tag: ${{ steps.intent.outputs.release-tag }}
           major-tag: ${{ steps.intent.outputs.major-tag }}
