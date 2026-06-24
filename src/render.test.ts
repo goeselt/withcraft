@@ -1,0 +1,222 @@
+import { expect, test } from 'vitest'
+import {
+  actionVersionLines,
+  COPY_ACTION_REFERENCE_COMMAND,
+  esc,
+  inputDocumentation,
+  inputSummary,
+  outputSummary,
+  titleWithMetadata,
+} from './render.js'
+import type { ActionMetadata } from './types.js'
+
+function copyLink(reference: string): string {
+  return `[$(copy)](command:${COPY_ACTION_REFERENCE_COMMAND}?${encodeURIComponent(JSON.stringify([reference]))})`
+}
+
+const metadata: ActionMetadata = {
+  name: 'Setup Node.js environment',
+  description:
+    'Setup a Node.js environment by adding problem matchers and optionally downloading and adding it to the PATH.',
+  inputs: [
+    {
+      name: 'cache-dependency-path',
+      description:
+        'Used to specify the path to a dependency file: package-lock.json, yarn.lock, etc. Supports wildcards or a list of file names for caching multiple dependencies.',
+      required: false,
+      default: undefined,
+      deprecationMessage: undefined,
+    },
+    {
+      name: 'check-latest',
+      description:
+        'Set this option if you want the action to check for the latest available version that satisfies the version spec.',
+      required: false,
+      default: 'false',
+      deprecationMessage: undefined,
+    },
+  ],
+  outputs: [],
+  source: {
+    kind: 'remote',
+    host: 'github.com',
+    owner: 'actions',
+    repo: 'setup-node',
+    path: 'action.yml',
+    ref: 'v6',
+    url: 'https://github.com/actions/setup-node/blob/v6/action.yml',
+    action: {
+      fullName: 'actions/setup-node',
+      repoUrl: 'https://github.com/actions/setup-node',
+      resolvedSha: 'a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
+      commitUrl: 'https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
+      version: 'v6.0.0',
+      versionUrl: 'https://github.com/actions/setup-node/tree/v6.0.0',
+      latest: {
+        name: 'v6.0.0',
+        url: 'https://github.com/actions/setup-node/tree/v6.0.0',
+        sha: 'a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
+        commitUrl: 'https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
+        isCurrent: true,
+      },
+    },
+  },
+}
+
+test('titleWithMetadata places the metadata link next to the title', () => {
+  expect(titleWithMetadata(metadata, 'actions/setup-node@v6')).toBe(
+    '**Setup Node.js environment** ([`action.yml`](https://github.com/actions/setup-node/blob/v6/action.yml))',
+  )
+})
+
+test('actionVersionLines renders the canonical action reference', () => {
+  expect(actionVersionLines(metadata)).toEqual([
+    `Current: [` +
+      `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
+      `@[\`a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
+      ` # [\`v6.0.0\`](https://github.com/actions/setup-node/tree/v6.0.0) ${copyLink(
+        'actions/setup-node@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v6.0.0',
+      )}`,
+  ])
+})
+
+test('actionVersionLines renders latest when the current ref is outdated', () => {
+  const outdated = structuredClone(metadata)
+  if (outdated.source.kind !== 'remote' || !outdated.source.action?.latest) throw new Error('expected remote metadata')
+  outdated.source.action.latest = {
+    name: 'v6.1.0',
+    url: 'https://github.com/actions/setup-node/tree/v6.1.0',
+    sha: 'bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
+    commitUrl: 'https://github.com/actions/setup-node/commit/bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
+    isCurrent: false,
+  }
+
+  expect(actionVersionLines(outdated)).toEqual([
+    `Current: [` +
+      `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
+      `@[\`a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
+      ` # [\`v6.0.0\`](https://github.com/actions/setup-node/tree/v6.0.0) ${copyLink(
+        'actions/setup-node@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v6.0.0',
+      )}`,
+    `Latest: [` +
+      `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
+      `@[\`bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
+      ` # [\`v6.1.0\`](https://github.com/actions/setup-node/tree/v6.1.0) ${copyLink(
+        'actions/setup-node@bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v6.1.0',
+      )}`,
+  ])
+})
+
+test('actionVersionLines renders reusable workflow references with current and latest', () => {
+  const reusable: ActionMetadata = {
+    name: 'Check Super Linter',
+    description: undefined,
+    inputs: [],
+    outputs: [
+      {
+        name: 'report-url',
+        description: 'URL of the generated report.',
+      },
+    ],
+    source: {
+      kind: 'remote',
+      host: 'github.example.com',
+      owner: 'example-org',
+      repo: 'action-workflows',
+      path: '.github/workflows/_check.super-linter.yml',
+      ref: 'v1.0.23',
+      url: 'https://github.example.com/example-org/action-workflows/blob/v1.0.23/.github/workflows/_check.super-linter.yml',
+      action: {
+        fullName: 'example-org/action-workflows/.github/workflows/_check.super-linter.yml',
+        repoUrl: 'https://github.example.com/example-org/action-workflows',
+        resolvedSha: 'df4cb1c069e1874edd31b4311f1884172cec0e10',
+        commitUrl:
+          'https://github.example.com/example-org/action-workflows/commit/df4cb1c069e1874edd31b4311f1884172cec0e10',
+        version: 'v1.0.23',
+        versionUrl: 'https://github.example.com/example-org/action-workflows/tree/v1.0.23',
+        latest: {
+          name: 'v1.0.24',
+          url: 'https://github.example.com/example-org/action-workflows/tree/v1.0.24',
+          sha: 'a81bbbf8298c0fa03ea29cdc473d45769f953675',
+          commitUrl:
+            'https://github.example.com/example-org/action-workflows/commit/a81bbbf8298c0fa03ea29cdc473d45769f953675',
+          isCurrent: false,
+        },
+      },
+    },
+  }
+
+  expect(actionVersionLines(reusable)).toEqual([
+    `Current: [` +
+      `\`example-org/action-workflows/.github/workflows/_check.super-linter.yml\`](https://github.example.com/example-org/action-workflows)` +
+      `@[\`df4cb1c069e1874edd31b4311f1884172cec0e10\`](https://github.example.com/example-org/action-workflows/commit/df4cb1c069e1874edd31b4311f1884172cec0e10)` +
+      ` # [\`v1.0.23\`](https://github.example.com/example-org/action-workflows/tree/v1.0.23) ${copyLink(
+        'example-org/action-workflows/.github/workflows/_check.super-linter.yml@df4cb1c069e1874edd31b4311f1884172cec0e10 # v1.0.23',
+      )}`,
+    `Latest: [` +
+      `\`example-org/action-workflows/.github/workflows/_check.super-linter.yml\`](https://github.example.com/example-org/action-workflows)` +
+      `@[\`a81bbbf8298c0fa03ea29cdc473d45769f953675\`](https://github.example.com/example-org/action-workflows/commit/a81bbbf8298c0fa03ea29cdc473d45769f953675)` +
+      ` # [\`v1.0.24\`](https://github.example.com/example-org/action-workflows/tree/v1.0.24) ${copyLink(
+        'example-org/action-workflows/.github/workflows/_check.super-linter.yml@a81bbbf8298c0fa03ea29cdc473d45769f953675 # v1.0.24',
+      )}`,
+  ])
+})
+
+test('inputSummary renders the compact input list', () => {
+  expect(inputSummary(metadata)).toBe(
+    '- **cache-dependency-path**:  Used to specify the path to a dependency file: package\\-lock.json, yarn.lock, etc. Supports wildcards or a list of file names for caching multiple dependencies.\n' +
+      '- **check-latest** (default: `false`):  Set this option if you want the action to check for the latest available version that satisfies the version spec.',
+  )
+})
+
+test('inputDocumentation includes the description for completion details', () => {
+  expect(inputDocumentation(metadata.inputs[1])).toBe(
+    'Set this option if you want the action to check for the latest available version that satisfies the version spec.\n' +
+      '\n' +
+      'Required: no',
+  )
+})
+
+test('inputSummary marks deprecated inputs', () => {
+  const withDeprecated: ActionMetadata = {
+    ...metadata,
+    inputs: [
+      {
+        name: 'old-token',
+        description: 'Deprecated token input.',
+        required: false,
+        default: undefined,
+        deprecationMessage: 'Use token instead.',
+      },
+    ],
+  }
+  expect(inputSummary(withDeprecated)).toBe('- **old-token** (deprecated):  Deprecated token input.')
+})
+
+test('esc does not escape parentheses in prose text', () => {
+  expect(esc('Optional registry URL (https://npm.pkg.github.com/) for auth.')).toBe(
+    'Optional registry URL (https://npm.pkg.github.com/) for auth.',
+  )
+})
+
+test('esc escapes Markdown special characters other than parentheses', () => {
+  expect(esc('a [b] *c* _d_ `e` \\f')).toBe('a \\[b\\] \\*c\\* \\_d\\_ \\`e\\` \\\\f')
+})
+
+test('outputSummary renders the compact output list', () => {
+  const withOutputs: ActionMetadata = {
+    ...metadata,
+    outputs: [
+      {
+        name: 'artifact-url',
+        description: 'URL of the uploaded artifact.',
+      },
+      {
+        name: 'digest',
+        description: '',
+      },
+    ],
+  }
+
+  expect(outputSummary(withOutputs)).toBe('- **artifact-url**:  URL of the uploaded artifact.\n- **digest**')
+})

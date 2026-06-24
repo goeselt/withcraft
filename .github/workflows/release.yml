@@ -1,0 +1,112 @@
+---
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - id: app
+        name: Generate App Token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0 # intent release needs full history to find the previous release tag
+          token: ${{ steps.app.outputs.token }}
+          persist-credentials: false
+
+      - id: intent
+        name: Intent Release
+        uses: goeselt/intent@10ce9d916bb1af60c48ff1bc03a99348aede7f1a # v1.1.4
+        with:
+          initial-version: '1.4.0'
+
+      - name: Set Up Node
+        if: steps.intent.outputs.release-needed == 'true'
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+
+      - name: Install Dependencies
+        if: steps.intent.outputs.release-needed == 'true'
+        run: npm ci
+
+      - name: Typecheck
+        if: steps.intent.outputs.release-needed == 'true'
+        run: npm run typecheck
+
+      - name: Bump Version
+        if: steps.intent.outputs.release-needed == 'true'
+        env:
+          VERSION: ${{ steps.intent.outputs.next-version }}
+        run: npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Build
+        if: steps.intent.outputs.release-needed == 'true'
+        run: npm run build
+
+      - name: Package
+        if: steps.intent.outputs.release-needed == 'true'
+        id: pkg
+        env:
+          VERSION: ${{ steps.intent.outputs.next-version }}
+        run: |
+          npm run package
+          printf 'vsix=withcraft-%s.vsix\n' "$VERSION" >>"$GITHUB_OUTPUT"
+
+      - name: Attest Build Provenance
+        if: steps.intent.outputs.release-needed == 'true'
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: ${{ steps.pkg.outputs.vsix }}
+
+      - name: Commit Version Bump
+        if: steps.intent.outputs.release-needed == 'true'
+        uses: goeselt/scribe@4628c4f2ebb92e31e989b220b1a82ba5132d0a3f # v1.2.1
+        with:
+          files: |
+            package.json
+            package-lock.json
+          message: 'chore(version): release v${{ steps.intent.outputs.next-version }}'
+          github-token: ${{ steps.app.outputs.token }}
+          git-user-name: ${{ vars.RELEASE_SIGNING_USER }}
+          git-user-email: ${{ vars.RELEASE_SIGNING_EMAIL }}
+          signing-key: ${{ secrets.RELEASE_SIGNING_KEY }}
+
+      - name: Release
+        if: steps.intent.outputs.release-needed == 'true'
+        uses: goeselt/dispatch@537bfa0724a8de8b2a8e282458944a9cf368f740 # v1.2.3
+        with:
+          release-tag: ${{ steps.intent.outputs.release-tag }}
+          major-tag: ${{ steps.intent.outputs.major-tag }}
+          minor-tag: ${{ steps.intent.outputs.minor-tag }}
+          github-token: ${{ steps.app.outputs.token }}
+          git-user-name: ${{ vars.RELEASE_SIGNING_USER }}
+          git-user-email: ${{ vars.RELEASE_SIGNING_EMAIL }}
+          signing-key: ${{ secrets.RELEASE_SIGNING_KEY }}
+          assets: ${{ steps.pkg.outputs.vsix }}

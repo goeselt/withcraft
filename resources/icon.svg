@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Background -->
+  <rect width="256" height="256" rx="48" fill="#1D4ED8"/>
+  <!-- Tooltip bubble body -->
+  <rect x="28" y="24" width="200" height="148" rx="18" fill="white"/>
+  <!-- Tooltip tail pointing down-left -->
+  <path d="M44,172 L88,172 L44,218 Z" fill="white"/>
+  <!-- Bold label line (title / key name) -->
+  <rect x="50" y="54" width="84" height="14" rx="7" fill="#1D4ED8"/>
+  <!-- Lighter content lines (description / value rows) -->
+  <rect x="50" y="84" width="152" height="11" rx="5" fill="#1D4ED8" opacity="0.4"/>
+  <rect x="50" y="110" width="128" height="11" rx="5" fill="#1D4ED8" opacity="0.4"/>
+  <rect x="50" y="136" width="104" height="11" rx="5" fill="#1D4ED8" opacity="0.4"/>
+</svg>
