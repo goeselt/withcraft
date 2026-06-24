@@ -22,6 +22,7 @@ import {
   inputDocumentation,
   inputSummary,
   outputDocumentation,
+  codeEsc,
   outputSummary,
   referenceLabel,
   titleWithMetadata,
@@ -181,7 +182,7 @@ function buildInputHover(input: ActionMetadata['inputs'][number]): vscode.Markdo
   configureHoverMarkdown(md)
   md.appendMarkdown(`**${esc(input.name)}**${input.required ? ' (required)' : ''}\n\n`)
   if (input.description) md.appendMarkdown(`${esc(input.description)}\n\n`)
-  if (input.default) md.appendMarkdown(`Default: \`${input.default.replace(/`/g, '\\`')}\`\n\n`)
+  if (input.default) md.appendMarkdown(`Default: \`${codeEsc(input.default)}\`\n\n`)
   if (input.deprecationMessage) md.appendMarkdown(`Deprecated: ${esc(input.deprecationMessage)}`)
   appendRefreshLink(md)
   return md

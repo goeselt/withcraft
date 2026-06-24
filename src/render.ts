@@ -117,5 +117,5 @@ export function esc(text: string): string {
 }
 
 export function codeEsc(text: string): string {
-  return text.replace(/`/g, '\\`')
+  return text.replace(/\\/g, '\\\\').replace(/`/g, '\\`')
 }

@@ -4,8 +4,8 @@ Stop tab-switching to GitHub to remember what an action expects. Withcraft is a 
 surfaces GitHub Action inputs, outputs, defaults, and version info inline -- right where you author your workflows.
 
 Editing a workflow normally means leaving the editor to read an action's `action.yml` on GitHub: which inputs exist,
-which are required, what the defaults are, whether you are still pinned to a stale version. Withcraft answers all of that
-on hover and completes inputs and step outputs as you type, so the metadata lives next to the code that uses it.
+which are required, what the defaults are, whether you are still pinned to a stale version. Withcraft answers all of
+that on hover and completes inputs and step outputs as you type, so the metadata lives next to the code that uses it.
 
 - **Hover any `uses:`** for the action description, declared inputs and outputs, and current-vs-latest version.
 - **Hover any `with:` key** for its description, required status, default value, and deprecation notice.
