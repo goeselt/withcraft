@@ -62,10 +62,9 @@ export async function resolveLocalReusableWorkflowMetadata(
   })
 }
 
-// `uses: ./path` is always resolved relative to the root of the repository checked out by the
-// workflow run, not relative to the workflow file's directory or the VS Code workspace folder --
-// the two diverge for nested repos (e.g. project/<repo>/.github/workflows/ci.yml under a workspace
-// folder that is itself not a git repo).
+// `uses: ./path` is always resolved relative to the root of the repository checked out by the workflow run,
+// not relative to the workflow file's directory or the VS Code workspace folder -- the two diverge for nested repos
+// (e.g. project/<repo>/.github/workflows/ci.yml under a workspace folder that is itself not a git repo).
 async function findRepoRoot(startDir: string, fs: LocalFileSystem): Promise<string | undefined> {
   let dir = startDir
   for (;;) {
@@ -76,9 +75,8 @@ async function findRepoRoot(startDir: string, fs: LocalFileSystem): Promise<stri
   }
 }
 
-// `uses: ./path` references are resolved relative to the checked-out repository
-// root and -- like GitHub Actions itself -- must not escape it. `workspacePath`
-// is untrusted workflow content, so reject any `../` traversal that would read
+// `uses: ./path` references are resolved relative to the checked-out repository root and -- like GitHub Actions itself
+// -- must not escape it. `workspacePath` is untrusted workflow content, so reject any `../` traversal that would read
 // `action.yml` files outside the repo/workspace boundary.
 function isWithin(root: string, target: string): boolean {
   const rel = path.relative(root, target)

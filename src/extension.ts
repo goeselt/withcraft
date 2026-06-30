@@ -38,7 +38,7 @@ import {
   type StepOutputReference,
 } from './workflow.js'
 
-// -- Constants ----------------------------------------------------------------
+// -- Constants --------------------------------------------------------------------------------------------------------
 
 const TOKEN_SECRET_PREFIX = 'withcraft.githubToken.'
 const REFRESH_METADATA_COMMAND = 'withcraft.refreshMetadata'
@@ -47,8 +47,8 @@ const GH_AUTH_TOKEN_TIMEOUT_MS = 5000
 
 const execFileAsync = promisify(execFile)
 
-// Node.js filesystem adapter passed to local resolvers. Defined once here so
-// neither local-action nor local-reusable-workflow cases need their own literal.
+// Node.js filesystem adapter passed to local resolvers.
+// Defined once here so neither local-action nor local-reusable-workflow cases need their own literal.
 const nodeFs: LocalFileSystem = {
   readFile: (filePath) => readFile(filePath, 'utf8'),
   pathExists: (filePath) =>
@@ -58,10 +58,11 @@ const nodeFs: LocalFileSystem = {
     ),
 }
 
-// -- Module-level state --------------------------------------------------------
+// -- Module-level state -----------------------------------------------------------------------------------------------
 
-// Workflow step index keyed by document URI + version. Cleared when a document
-// is closed so stale parses don't accumulate.
+// Workflow step index keyed by document URI. getCachedIndex compares the stored version and rebuilds whenever the
+// document version moved on, so a hover after editing `uses:` never reuses stale step/input ranges. The entry is
+// dropped on close to avoid retaining indexes for documents no longer open.
 const indexCache = new Map<string, { version: number; steps: WorkflowActionStep[] }>()
 
 // gh CLI token cache. Keyed by host; `undefined` means "asked, got nothing".
@@ -118,7 +119,7 @@ export function deactivate() {
   logger = noopLogger
 }
 
-// -- Hover provider ------------------------------------------------------------
+// -- Hover provider ---------------------------------------------------------------------------------------------------
 
 async function provideHover(
   ctx: vscode.ExtensionContext,
@@ -129,11 +130,13 @@ async function provideHover(
   if (!isSupportedActionsPath(document.uri.fsPath)) return undefined
 
   const offset = document.offsetAt(position)
+  const documentVersion = document.version
   const steps = getCachedIndex(document)
   const step = stepAtOffset(steps, offset)
   if (!step) return undefined
 
   const metadata = await resolveStepMetadata(ctx, document, step, 'hover')
+  if (document.version !== documentVersion) return undefined
   if (!metadata) return unsupportedHover(step, offset)
 
   if (offset >= step.usesRange.start && offset <= step.usesRange.end) {
@@ -224,8 +227,8 @@ function unsupportedMessage(uses: UsesReference): vscode.MarkdownString {
       )
       return md
     default:
-      // Resolution can fail for several reasons; the most common actionable one
-      // is a private repository without a configured token, so offer that path.
+      // Resolution can fail for several reasons; the most common actionable one is a private repository without a
+      // configured token, so offer that path.
       md.isTrusted = { enabledCommands: [SET_TOKEN_COMMAND] }
       md.appendMarkdown(
         '$(warning) Withcraft could not resolve this action.\n\n' +
@@ -236,7 +239,7 @@ function unsupportedMessage(uses: UsesReference): vscode.MarkdownString {
   }
 }
 
-// -- Completion provider -------------------------------------------------------
+// -- Completion provider ----------------------------------------------------------------------------------------------
 
 async function provideCompletionItems(
   ctx: vscode.ExtensionContext,
@@ -247,14 +250,16 @@ async function provideCompletionItems(
   if (!isSupportedActionsPath(document.uri.fsPath)) return undefined
 
   const offset = document.offsetAt(position)
+  const documentVersion = document.version
   const steps = getCachedIndex(document)
   const outputReference = stepOutputReferenceAtOffset(document.getText(), offset)
-  if (outputReference) return outputCompletionItems(ctx, document, steps, outputReference, offset)
+  if (outputReference) return outputCompletionItems(ctx, document, steps, outputReference, offset, documentVersion)
 
   const step = stepAtOffset(steps, offset)
   if (!step || !isOffsetInWithBlock(step, offset)) return undefined
 
   const metadata = await resolveStepMetadata(ctx, document, step, 'completion')
+  if (document.version !== documentVersion) return undefined
   if (!metadata) return undefined
 
   const existing = new Set(step.withInputs.keys())
@@ -287,6 +292,7 @@ async function outputCompletionItems(
   steps: WorkflowActionStep[],
   outputReference: StepOutputReference,
   offset: number,
+  documentVersion: number,
 ): Promise<vscode.CompletionItem[] | undefined> {
   const step = steps.find(
     (candidate) =>
@@ -297,6 +303,7 @@ async function outputCompletionItems(
   if (!step) return undefined
 
   const metadata = await resolveStepMetadata(ctx, document, step, 'completion')
+  if (document.version !== documentVersion) return undefined
   if (!metadata || metadata.outputs.length === 0) return undefined
 
   const range = toRange(document, outputReference.outputNameRange.start, outputReference.outputNameRange.end)
@@ -316,7 +323,7 @@ async function outputCompletionItems(
     })
 }
 
-// -- Metadata resolution -------------------------------------------------------
+// -- Metadata resolution ----------------------------------------------------------------------------------------------
 
 function resolveStepMetadata(
   ctx: vscode.ExtensionContext,
@@ -362,7 +369,7 @@ function getCachedIndex(document: vscode.TextDocument): WorkflowActionStep[] {
   return steps
 }
 
-// -- Command handlers ----------------------------------------------------------
+// -- Command handlers -------------------------------------------------------------------------------------------------
 
 async function setGitHubToken(ctx: vscode.ExtensionContext) {
   const host = await promptForHost('Withcraft: Set GitHub Token')
@@ -412,9 +419,8 @@ function refreshMetadata() {
   }, 100)
 }
 
-// Prompts for a GitHub host and returns its canonical form, validating input so
-// a mistyped host (with scheme/casing/path) cannot be stored under a key that
-// later lookups never match.
+// Prompts for a GitHub host and returns its canonical form, validating input so a mistyped host
+// (with scheme/casing/path) cannot be stored under a key that later lookups never match.
 async function promptForHost(title: string): Promise<string | undefined> {
   const input = await vscode.window.showInputBox({
     title,
@@ -427,7 +433,7 @@ async function promptForHost(title: string): Promise<string | undefined> {
   return normalizeHost(input)
 }
 
-// -- Token management ----------------------------------------------------------
+// -- Token management -------------------------------------------------------------------------------------------------
 
 async function tokenForHost(ctx: vscode.ExtensionContext, host: string): Promise<string | undefined> {
   const stored = await ctx.secrets.get(`${TOKEN_SECRET_PREFIX}${host}`)
@@ -439,8 +445,8 @@ async function tokenForHost(ctx: vscode.ExtensionContext, host: string): Promise
   return tokenFromGhCli(host)
 }
 
-// Caches the gh CLI result per host for the lifetime of the extension. The
-// in-flight map prevents redundant concurrent subprocess calls.
+// Caches the gh CLI result per host for the lifetime of the extension.
+// The in-flight map prevents redundant concurrent subprocess calls.
 function tokenFromGhCli(host: string): Promise<string | undefined> {
   if (ghTokenCache.has(host)) return Promise.resolve(ghTokenCache.get(host))
 
@@ -476,7 +482,7 @@ function clearTokenCache() {
   ghTokenInFlight.clear()
 }
 
-// -- Helpers -------------------------------------------------------------------
+// -- Helpers ----------------------------------------------------------------------------------------------------------
 
 function enabled(document: vscode.TextDocument, setting: 'hover.enabled' | 'completion.enabled'): boolean {
   const config = vscode.workspace.getConfiguration('withcraft', document.uri)

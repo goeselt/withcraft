@@ -26,6 +26,7 @@ export interface RemoteActionReference {
   repo: string
   path: string
   ref: string
+  pinInfo?: string | undefined
   raw: string
 }
 
@@ -53,6 +54,7 @@ export interface ReusableWorkflowReference {
   repo: string
   workflowPath: string
   ref: string
+  pinInfo?: string | undefined
   raw: string
 }
 
@@ -84,12 +86,21 @@ export interface LocalMetadataSource {
 export interface RemoteActionInfo {
   fullName: string
   repoUrl: string
+  // Human-readable identity of the resolved SHA shown after the `#`: the most specific tag pointing at it, the literal
+  // ref the user pinned, a verified inline pin comment, or 'sha pin' when nothing maps. Always populated, with a link
+  // target in pinInfoUrl; see resolvePinInfo.
+  pinInfo: string
+  pinInfoUrl: string
   resolvedSha: string
   commitUrl: string
+  // Resolved semver tag, used for diagnostics logging only (the hover uses pinInfo). Undefined for a bare SHA.
   version: string | undefined
-  versionUrl: string | undefined
   latest: LatestActionVersion | undefined
 }
+
+// How a `uses:` ref was resolved. Internal to remote resolution; not exposed on RemoteActionInfo because no consumer
+// of the metadata needs it yet.
+export type RemoteRefKind = 'sha' | 'tag' | 'branch' | 'ref'
 
 export interface LatestActionVersion {
   name: string

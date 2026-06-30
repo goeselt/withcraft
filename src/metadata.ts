@@ -3,17 +3,15 @@ import type { ActionInput, ActionMetadata, ActionOutput, LocalMetadataSource, Re
 
 type MetadataSource = RemoteMetadataSource | LocalMetadataSource
 
-// Hard caps on the number of declared inputs/outputs we parse. Legitimate
-// actions rarely exceed a few dozen; these limits prevent a crafted action.yml
-// with thousands of entries from causing UI lag or excessive memory use.
-// (Remote files are already bounded by MAX_RESPONSE_BODY_BYTES; these caps
-// cover local files which are read without a size limit.)
+// Hard caps on the number of declared inputs/outputs we parse. Legitimate actions rarely exceed a few dozen;
+// these limits prevent a crafted action.yml with thousands of entries from causing UI lag or excessive memory use.
+// (Remote files are already bounded by MAX_RESPONSE_BODY_BYTES; these caps cover local files which are read without a
+// size limit.)
 export const MAX_INPUTS = 200
 export const MAX_OUTPUTS = 50
 
-// yaml v2 parseDocument collects parse errors in doc.errors rather than throwing
-// (strict: false default) and enforces maxAliasCount: 100 by default -- both are
-// the behaviors we rely on. No explicit options are needed.
+// yaml v2 parseDocument collects parse errors in doc.errors rather than throwing (strict: false default) and enforces
+// maxAliasCount: 100 by default -- both are the behaviors we rely on. No explicit options are needed.
 
 export function parseReusableWorkflowMetadata(text: string, source: MetadataSource): ActionMetadata {
   const doc = parseDocument(text)

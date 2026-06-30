@@ -58,6 +58,444 @@ describe('resolveRemoteMetadata', () => {
     expect(metadata?.source.kind).toBe('remote')
     if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
     expect(metadata.source.action?.resolvedSha).toBe(sha)
+    expect(metadata.source.action?.pinInfo).toBe('feature/my-branch')
+    expect(metadata.source.action?.pinInfoUrl).toBe('https://github.com/owner/repo/tree/feature%2Fmy-branch')
+  })
+
+  it('classifies full commit SHA references as SHA pins without a commit lookup', async () => {
+    const urls: string[] = []
+    const sha = '1234567890abcdef1234567890abcdef12345678'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        urls.push(requestUrl)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) return jsonResponse([])
+        if (requestUrl.endsWith(`/repos/owner/repo/contents/action.yml?ref=${sha}`)) {
+          return textResponse('name: SHA Pinned Action\n')
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: sha,
+        raw: `owner/repo@${sha}`,
+      },
+      {
+        hosts: ['github.com'],
+        maxEntries: 100,
+        tokenForHost: () => Promise.resolve<string | undefined>(void 0),
+      },
+    )
+
+    expect(urls).not.toContain(`https://api.github.com/repos/owner/repo/commits/${sha}`)
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('sha pin')
+    expect(metadata.source.action?.pinInfoUrl).toBe(`https://github.com/owner/repo/commit/${sha}`)
+    expect(metadata.source.action?.resolvedSha).toBe(sha)
+  })
+
+  it('uses an inline pin comment only when it resolves to the same SHA', async () => {
+    const sha = '1234567890abcdef1234567890abcdef12345678'
+    const latestSha = '2222222222222222222222222222222222222222'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) {
+          return jsonResponse([
+            { name: 'v1.2.1', commit: { sha } },
+            { name: 'v1.2.2', commit: { sha: latestSha } },
+          ])
+        }
+        if (requestUrl.endsWith(`/repos/owner/repo/contents/action.yml?ref=${sha}`)) {
+          return textResponse('name: SHA Pinned Action\n')
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: sha,
+        pinInfo: '# v1.2.1',
+        raw: `owner/repo@${sha}`,
+      },
+      {
+        hosts: ['github.com'],
+        maxEntries: 100,
+        tokenForHost: () => Promise.resolve<string | undefined>(void 0),
+      },
+    )
+
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('v1.2.1')
+    expect(metadata.source.action?.pinInfoUrl).toBe('https://github.com/owner/repo/tree/v1.2.1')
+    expect(metadata.source.action?.latest).toMatchObject({
+      name: 'v1.2.2',
+      sha: latestSha,
+      isCurrent: false,
+    })
+  })
+
+  it('ignores an inline pin comment that resolves to a different SHA', async () => {
+    const sha = '1234567890abcdef1234567890abcdef12345678'
+    const staleCommentSha = '2222222222222222222222222222222222222222'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) {
+          return jsonResponse([{ name: 'v1.2.1', commit: { sha: staleCommentSha } }])
+        }
+        if (requestUrl.endsWith(`/repos/owner/repo/contents/action.yml?ref=${sha}`)) {
+          return textResponse('name: SHA Pinned Action\n')
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: sha,
+        pinInfo: '# v1.2.1',
+        raw: `owner/repo@${sha}`,
+      },
+      {
+        hosts: ['github.com'],
+        maxEntries: 100,
+        tokenForHost: () => Promise.resolve<string | undefined>(void 0),
+      },
+    )
+
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('sha pin')
+    expect(metadata.source.action?.pinInfoUrl).toBe(`https://github.com/owner/repo/commit/${sha}`)
+  })
+
+  it('does not resolve a non-ref-like inline pin comment against the API', async () => {
+    const urls: string[] = []
+    const sha = '1234567890abcdef1234567890abcdef12345678'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        urls.push(requestUrl)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) return jsonResponse([])
+        if (requestUrl.endsWith(`/repos/owner/repo/contents/action.yml?ref=${sha}`)) {
+          return textResponse('name: SHA Pinned Action\n')
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: sha,
+        pinInfo: '# bumped by renovate on 2024-01-01',
+        raw: `owner/repo@${sha}`,
+      },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    // Prose comments must not be turned into a `/commits/<text>` lookup.
+    expect(urls.some((url) => url.includes('/commits/'))).toBe(false)
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('sha pin')
+  })
+
+  it('reads action metadata from the current tag even when a newer tag exists', async () => {
+    const currentSha = '1111111111111111111111111111111111111111'
+    const latestSha = '2222222222222222222222222222222222222222'
+    const contentRequests: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) {
+          return jsonResponse([
+            { name: 'v1', commit: { sha: currentSha } },
+            { name: 'v2', commit: { sha: latestSha } },
+          ])
+        }
+        if (requestUrl.includes('/repos/owner/repo/contents/action.yml?ref=')) {
+          contentRequests.push(requestUrl)
+          if (requestUrl.endsWith('?ref=v1')) {
+            return textResponse(
+              'name: Current Tag Action\n' +
+                'description: From the current tag\n' +
+                'inputs:\n' +
+                '  current-input:\n' +
+                '    description: Only on v1\n' +
+                'outputs:\n' +
+                '  current-output:\n' +
+                '    description: Output from v1\n',
+            )
+          }
+          if (requestUrl.endsWith('?ref=v2')) {
+            return textResponse('name: Latest Tag Action\ninputs:\n  latest-input:\n    description: Only on v2\n')
+          }
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: 'v1',
+        raw: 'owner/repo@v1',
+      },
+      {
+        hosts: ['github.com'],
+        maxEntries: 100,
+        tokenForHost: () => Promise.resolve<string | undefined>(void 0),
+      },
+    )
+
+    expect(contentRequests).toEqual(['https://api.github.com/repos/owner/repo/contents/action.yml?ref=v1'])
+    expect(metadata?.name).toBe('Current Tag Action')
+    expect(metadata?.description).toBe('From the current tag')
+    expect(metadata?.inputs.map((input) => input.name)).toEqual(['current-input'])
+    expect(metadata?.outputs.map((output) => output.name)).toEqual(['current-output'])
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.resolvedSha).toBe(currentSha)
+    expect(metadata.source.action?.latest).toMatchObject({
+      name: 'v2',
+      sha: latestSha,
+      isCurrent: false,
+    })
+  })
+
+  it('reads action metadata from a SHA pin while still reporting the latest tag', async () => {
+    const pinnedSha = '1111111111111111111111111111111111111111'
+    const latestSha = '2222222222222222222222222222222222222222'
+    const contentRequests: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) {
+          return jsonResponse([{ name: 'v2', commit: { sha: latestSha } }])
+        }
+        if (requestUrl.includes('/repos/owner/repo/contents/action.yml?ref=')) {
+          contentRequests.push(requestUrl)
+          if (requestUrl.endsWith(`?ref=${pinnedSha}`)) {
+            return textResponse('name: SHA Pinned Action\ninputs:\n  pinned-input:\n    description: From the pin\n')
+          }
+          if (requestUrl.endsWith('?ref=v2')) {
+            return textResponse('name: Latest Tag Action\ninputs:\n  latest-input:\n    description: Only on v2\n')
+          }
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: pinnedSha,
+        raw: `owner/repo@${pinnedSha}`,
+      },
+      {
+        hosts: ['github.com'],
+        maxEntries: 100,
+        tokenForHost: () => Promise.resolve<string | undefined>(void 0),
+      },
+    )
+
+    expect(contentRequests).toEqual([`https://api.github.com/repos/owner/repo/contents/action.yml?ref=${pinnedSha}`])
+    expect(metadata?.name).toBe('SHA Pinned Action')
+    expect(metadata?.inputs.map((input) => input.name)).toEqual(['pinned-input'])
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('sha pin')
+    expect(metadata.source.action?.latest).toMatchObject({
+      name: 'v2',
+      sha: latestSha,
+      isCurrent: false,
+    })
+  })
+
+  it('upgrades a floating tag ref to the most specific tag at the same SHA', async () => {
+    const sha = '1111111111111111111111111111111111111111'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) {
+          return jsonResponse([
+            { name: 'v6', commit: { sha } },
+            { name: 'v6.0.1', commit: { sha } },
+          ])
+        }
+        if (requestUrl.endsWith('/repos/owner/repo/contents/action.yml?ref=v6')) {
+          return textResponse('name: Floating Tag Action\n')
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: 'v6', raw: 'owner/repo@v6' },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('v6.0.1')
+    expect(metadata.source.action?.pinInfoUrl).toBe('https://github.com/owner/repo/tree/v6.0.1')
+  })
+
+  it('labels a branch ref with the tag that points at the branch head', async () => {
+    const headSha = '1111111111111111111111111111111111111111'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) {
+          return jsonResponse([{ name: 'v6.0.1', commit: { sha: headSha } }])
+        }
+        if (requestUrl.endsWith('/repos/owner/repo/commits/main')) return jsonResponse({ sha: headSha })
+        if (requestUrl.endsWith('/repos/owner/repo/contents/action.yml?ref=main')) {
+          return textResponse('name: Branch Head Action\n')
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: 'main', raw: 'owner/repo@main' },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('v6.0.1')
+    expect(metadata.source.action?.pinInfoUrl).toBe('https://github.com/owner/repo/tree/v6.0.1')
+  })
+
+  it('falls back to the literal branch name when no tag points at the head', async () => {
+    const headSha = '1111111111111111111111111111111111111111'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) return jsonResponse([])
+        if (requestUrl.endsWith('/repos/owner/repo/commits/main')) return jsonResponse({ sha: headSha })
+        if (requestUrl.endsWith('/repos/owner/repo/contents/action.yml?ref=main')) {
+          return textResponse('name: Branch Head Action\n')
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: 'main', raw: 'owner/repo@main' },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('main')
+    expect(metadata.source.action?.pinInfoUrl).toBe('https://github.com/owner/repo/tree/main')
+  })
+
+  it('paginates the tags endpoint to find a tag beyond the first page', async () => {
+    const requestedPages: string[] = []
+    const sha = '1111111111111111111111111111111111111111'
+    const firstPage = Array.from({ length: 100 }, (_unused, index) => ({
+      name: `v0.0.${index}`,
+      commit: { sha: `0${index.toString().padStart(39, '0')}` },
+    }))
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+
+        if (requestUrl.includes('/repos/owner/repo/tags?per_page=100')) {
+          requestedPages.push(requestUrl)
+          if (requestUrl.includes('&page=2')) return jsonResponse([{ name: 'v9.9.9', commit: { sha } }])
+          return jsonResponse(firstPage)
+        }
+        if (requestUrl.endsWith(`/repos/owner/repo/contents/action.yml?ref=${sha}`)) {
+          return textResponse('name: Paginated Tag Action\n')
+        }
+
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: sha, raw: `owner/repo@${sha}` },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(requestedPages).toEqual([
+      'https://api.github.com/repos/owner/repo/tags?per_page=100',
+      'https://api.github.com/repos/owner/repo/tags?per_page=100&page=2',
+    ])
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('v9.9.9')
+    expect(metadata.source.action?.latest).toMatchObject({ name: 'v9.9.9', sha, isCurrent: true })
   })
 
   it('includes version metadata for remote reusable workflows', async () => {
@@ -112,6 +550,10 @@ describe('resolveRemoteMetadata', () => {
       'example-org/action-workflows/.github/workflows/_check.super-linter.yml',
     )
     expect(metadata.source.action?.resolvedSha).toBe(sha)
+    expect(metadata.source.action?.pinInfo).toBe('v1.0.23')
+    expect(metadata.source.action?.pinInfoUrl).toBe(
+      'https://github.example.com/example-org/action-workflows/tree/v1.0.23',
+    )
     expect(metadata.source.action?.version).toBe('v1.0.23')
     expect(metadata.source.action?.latest?.name).toBe('v1.0.24')
     expect(metadata.source.action?.latest?.isCurrent).toBe(false)
@@ -526,6 +968,42 @@ describe('response body size limit', () => {
     )
 
     expect(metadata).toBeUndefined()
+  })
+
+  it('rejects an oversized JSON API response instead of buffering it', async () => {
+    // Valid JSON above the limit and without a Content-Length header: only the
+    // streamed size guard can reject it. Without the guard `res.json()` would
+    // parse the commit and version inspection would succeed; with the guard the
+    // commit lookup fails, so the resolved version info is dropped.
+    const oversizedCommit = JSON.stringify({
+      sha: '1234567890abcdef1234567890abcdef12345678',
+      padding: 'x'.repeat(MAX_RESPONSE_BODY_BYTES),
+    })
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) return jsonResponse([])
+        if (requestUrl.endsWith('/repos/owner/repo/commits/main')) {
+          return new Response(oversizedCommit, { status: 200, headers: { 'content-type': 'application/json' } })
+        }
+        if (requestUrl.endsWith('/repos/owner/repo/contents/action.yml?ref=main')) {
+          return textResponse('name: Branch Action\n')
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: 'main', raw: 'owner/repo@main' },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata?.name).toBe('Branch Action')
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action).toBeUndefined()
   })
 })
 
