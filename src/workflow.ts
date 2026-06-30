@@ -30,7 +30,7 @@ export function buildWorkflowIndex(text: string): WorkflowActionStep[] {
   const compositeSteps = compositeActionStepList(root)
   if (isSeq(compositeSteps)) {
     const steps: WorkflowActionStep[] = []
-    pushActionSteps(compositeSteps, steps, nodeRange(root, true))
+    pushActionSteps(compositeSteps, steps, nodeRange(root, true), text)
     return steps
   }
 
@@ -42,11 +42,11 @@ export function buildWorkflowIndex(text: string): WorkflowActionStep[] {
   for (const job of jobs.items) {
     if (!isMap(job.value)) continue
     const jobRange = nodeRange(job.value, true)
-    pushJobUses(job.value, steps, jobRange)
+    pushJobUses(job.value, steps, jobRange, text)
 
     const stepList = mapValue(job.value, 'steps')
     if (!isSeq(stepList)) continue
-    pushActionSteps(stepList, steps, jobRange)
+    pushActionSteps(stepList, steps, jobRange, text)
   }
 
   return steps
@@ -83,17 +83,22 @@ export function stepOutputReferenceAtOffset(text: string, offset: number): StepO
   }
 }
 
-function pushJobUses(job: YAMLMap, steps: WorkflowActionStep[], scopeRange: OffsetRange | undefined) {
-  const usesStep = actionStepFromMap(job, scopeRange)
+function pushJobUses(job: YAMLMap, steps: WorkflowActionStep[], scopeRange: OffsetRange | undefined, text: string) {
+  const usesStep = actionStepFromMap(job, scopeRange, text)
   if (usesStep?.uses.kind === 'reusable-workflow' || usesStep?.uses.kind === 'local-reusable-workflow') {
     steps.push(usesStep)
   }
 }
 
-function pushActionSteps(stepList: YAMLSeq, steps: WorkflowActionStep[], scopeRange: OffsetRange | undefined) {
+function pushActionSteps(
+  stepList: YAMLSeq,
+  steps: WorkflowActionStep[],
+  scopeRange: OffsetRange | undefined,
+  text: string,
+) {
   for (const item of stepList.items) {
     if (!isMap(item)) continue
-    const step = actionStepFromMap(item, scopeRange)
+    const step = actionStepFromMap(item, scopeRange, text)
     if (step) steps.push(step)
   }
 }
@@ -104,16 +109,20 @@ function compositeActionStepList(root: YAMLMap): unknown {
   return mapValue(runs, 'steps')
 }
 
-function actionStepFromMap(map: YAMLMap, scopeRange: OffsetRange | undefined): WorkflowActionStep | undefined {
+function actionStepFromMap(
+  map: YAMLMap,
+  scopeRange: OffsetRange | undefined,
+  text: string,
+): WorkflowActionStep | undefined {
   const usesPair = mapPair(map, 'uses')
   if (!usesPair) return undefined
 
   const usesValue = scalarString(usesPair.value)
   if (!usesValue) return undefined
 
-  const uses = parseUsesValue(usesValue)
   const usesRange = nodeRange(usesPair.value)
   const stepRange = nodeRange(map, true)
+  const uses = withPinInfo(parseUsesValue(usesValue), usesRange ? inlineComment(text, usesRange) : undefined)
   if (!uses || !usesRange || !stepRange) return undefined
 
   const withInfo = parseWithMap(map)
@@ -126,6 +135,25 @@ function actionStepFromMap(map: YAMLMap, scopeRange: OffsetRange | undefined): W
     withRange: withInfo?.range,
     withInputs: withInfo?.inputs ?? new Map(),
   }
+}
+
+// Attaches the trailing `# ...` comment to remote refs so github.ts can match a SHA pin against its version comment.
+// Only remote-action and reusable-workflow references carry pinInfo; local kinds are returned unchanged.
+function withPinInfo(
+  uses: ReturnType<typeof parseUsesValue>,
+  pinInfo: string | undefined,
+): ReturnType<typeof parseUsesValue> {
+  if (!pinInfo || (uses?.kind !== 'remote-action' && uses?.kind !== 'reusable-workflow')) return uses
+  return { ...uses, pinInfo }
+}
+
+// Extracts the `#` comment trailing a `uses:` value on the same line (e.g. the `# v1.2.3` after a SHA pin).
+function inlineComment(text: string, valueRange: OffsetRange): string | undefined {
+  const lineEndIndex = text.indexOf('\n', valueRange.end)
+  const lineEnd = lineEndIndex === -1 ? text.length : lineEndIndex
+  const suffix = text.slice(valueRange.end, lineEnd)
+  const match = /(?:^|\s)(#.*)$/.exec(suffix)
+  return match?.[1].trim() || undefined
 }
 
 function parseWithMap(map: YAMLMap): { range: OffsetRange; inputs: Map<string, OffsetRange> } | undefined {

@@ -48,10 +48,11 @@ const metadata: ActionMetadata = {
     action: {
       fullName: 'actions/setup-node',
       repoUrl: 'https://github.com/actions/setup-node',
+      pinInfo: 'v6',
+      pinInfoUrl: 'https://github.com/actions/setup-node/tree/v6',
       resolvedSha: 'a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
       commitUrl: 'https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
       version: 'v6.0.0',
-      versionUrl: 'https://github.com/actions/setup-node/tree/v6.0.0',
       latest: {
         name: 'v6.0.0',
         url: 'https://github.com/actions/setup-node/tree/v6.0.0',
@@ -71,6 +72,57 @@ test('titleWithMetadata places the metadata link next to the title', () => {
 
 test('actionVersionLines renders the canonical action reference', () => {
   expect(actionVersionLines(metadata)).toEqual([
+    `Current: [` +
+      `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
+      `@[\`a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
+      ` # [\`v6\`](https://github.com/actions/setup-node/tree/v6) ${copyLink(
+        'actions/setup-node@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v6',
+      )}`,
+  ])
+})
+
+test('actionVersionLines labels branch references', () => {
+  const branch = structuredClone(metadata)
+  if (branch.source.kind !== 'remote' || !branch.source.action) throw new Error('expected remote metadata')
+  branch.source.action.pinInfo = 'main'
+  branch.source.action.pinInfoUrl = 'https://github.com/actions/setup-node/tree/main'
+  branch.source.action.latest = undefined
+
+  expect(actionVersionLines(branch)).toEqual([
+    `Current: [` +
+      `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
+      `@[\`a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
+      ` # [\`main\`](https://github.com/actions/setup-node/tree/main) ${copyLink(
+        'actions/setup-node@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # main',
+      )}`,
+  ])
+})
+
+test('actionVersionLines labels SHA-pinned references', () => {
+  const pinned = structuredClone(metadata)
+  if (pinned.source.kind !== 'remote' || !pinned.source.action) throw new Error('expected remote metadata')
+  pinned.source.action.pinInfo = 'sha pin'
+  pinned.source.action.pinInfoUrl = pinned.source.action.commitUrl
+  pinned.source.action.latest = undefined
+
+  expect(actionVersionLines(pinned)).toEqual([
+    `Current: [` +
+      `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
+      `@[\`a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
+      ` # [\`sha pin\`](https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32) ${copyLink(
+        'actions/setup-node@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # sha pin',
+      )}`,
+  ])
+})
+
+test('actionVersionLines prefers inline pin comments as current info', () => {
+  const pinned = structuredClone(metadata)
+  if (pinned.source.kind !== 'remote' || !pinned.source.action) throw new Error('expected remote metadata')
+  pinned.source.action.pinInfo = 'v6.0.0'
+  pinned.source.action.pinInfoUrl = 'https://github.com/actions/setup-node/tree/v6.0.0'
+  pinned.source.action.latest = undefined
+
+  expect(actionVersionLines(pinned)).toEqual([
     `Current: [` +
       `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
       `@[\`a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
@@ -95,8 +147,8 @@ test('actionVersionLines renders latest when the current ref is outdated', () =>
     `Current: [` +
       `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
       `@[\`a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
-      ` # [\`v6.0.0\`](https://github.com/actions/setup-node/tree/v6.0.0) ${copyLink(
-        'actions/setup-node@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v6.0.0',
+      ` # [\`v6\`](https://github.com/actions/setup-node/tree/v6) ${copyLink(
+        'actions/setup-node@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v6',
       )}`,
     `Latest: [` +
       `\`actions/setup-node\`](https://github.com/actions/setup-node)` +
@@ -129,11 +181,12 @@ test('actionVersionLines renders reusable workflow references with current and l
       action: {
         fullName: 'example-org/action-workflows/.github/workflows/_check.super-linter.yml',
         repoUrl: 'https://github.example.com/example-org/action-workflows',
+        pinInfo: 'v1.0.23',
+        pinInfoUrl: 'https://github.example.com/example-org/action-workflows/tree/v1.0.23',
         resolvedSha: 'df4cb1c069e1874edd31b4311f1884172cec0e10',
         commitUrl:
           'https://github.example.com/example-org/action-workflows/commit/df4cb1c069e1874edd31b4311f1884172cec0e10',
         version: 'v1.0.23',
-        versionUrl: 'https://github.example.com/example-org/action-workflows/tree/v1.0.23',
         latest: {
           name: 'v1.0.24',
           url: 'https://github.example.com/example-org/action-workflows/tree/v1.0.24',

@@ -1,19 +1,20 @@
 # Withcraft
 
-Stop tab-switching to GitHub to remember what an action expects. Withcraft is a Visual Studio Code extension that
-surfaces GitHub Action inputs, outputs, defaults, and version info inline -- right where you author your workflows.
+Write GitHub Actions workflows without keeping an `action.yml` tab open. Withcraft is a Visual Studio Code extension
+that brings action inputs, outputs, defaults, deprecations, and version info into the workflow file you are editing.
 
-Editing a workflow normally means leaving the editor to read an action's `action.yml` on GitHub: which inputs exist,
-which are required, what the defaults are, whether you are still pinned to a stale version. Withcraft answers all of
-that on hover and completes inputs and step outputs as you type, so the metadata lives next to the code that uses it.
+## Why Withcraft
 
-- **Hover any `uses:`** for the action description, declared inputs and outputs, and current-vs-latest version.
-- **Hover any `with:` key** for its description, required status, default value, and deprecation notice.
-- **Complete inside `with:`** to insert undeclared inputs (required first), or after `steps.<id>.outputs.` for declared
-  step outputs.
+- **Action metadata in context.** Hover any `uses:` for the action description, declared inputs and outputs, and
+  current-vs-latest version information.
+- **Input help where mistakes happen.** Hover a `with:` key for its description, required status, default value, and
+  deprecation notice.
+- **Completion for workflow wiring.** Complete undeclared `with:` inputs (required first) and declared
+  `steps.<id>.outputs.*` references as you type.
 
-Works with public GitHub and GitHub Enterprise Server. Local actions referenced with `./...` are read straight from the
-workspace.
+Works with public GitHub, GitHub Enterprise Server, local actions, and reusable workflows.
+
+![setup-node@v6 hover](./docs/setup_node_v6_hover.png)
 
 ## Quick Start
 
@@ -32,8 +33,6 @@ Example:
 Hovering `actions/setup-node@v6` shows the action description, resolved version, and a summary of its declared inputs
 and outputs.
 
-![setup-node@v6 hover](./docs/setup_node_v6_hover.png)
-
 Hovering `node-version` shows the input description, whether it is required, and its default value.
 
 ![node_version hover](./docs/setup_node_version_hover.png)
@@ -43,7 +42,28 @@ Pressing completion after `steps.<id>.outputs.` suggests the declared outputs of
 
 ![code completion](./docs/setup_node_code_completion.png)
 
-## Features
+## What You Get
+
+### Hovers for actions and inputs
+
+`uses:` hovers show the action name, description, declared inputs and outputs, and resolved version. When a newer tag is
+available, Withcraft shows the latest version beside the version you currently use.
+
+`with:` hovers explain individual inputs, including required status, defaults, and deprecation notices from the action
+metadata.
+
+### Completions for workflow files
+
+Inside a `with:` block, Withcraft suggests inputs that are not already present, with required inputs first. In
+expressions like `steps.build.outputs.`, it suggests declared outputs from the referenced action step.
+
+### Local, remote, and reusable workflow metadata
+
+Remote action metadata is resolved through the configured GitHub hosts and cached in memory to keep API usage low. Local
+actions referenced with `./...` are read straight from the workspace so edits are reflected immediately. Reusable
+workflow calls are supported for both remote references and local `.github/workflows/*.yml` files.
+
+### Feature summary
 
 - Hover on `uses:` shows the action name, description, declared inputs summary, and resolved version.
 - `uses:` hovers can also show declared outputs; input and output sections can be toggled independently.

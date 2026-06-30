@@ -5,19 +5,19 @@ import type {
   ActionMetadata,
   LatestActionVersion,
   RemoteActionInfo,
+  RemoteRefKind,
   RemoteActionReference,
   ReusableWorkflowReference,
 } from './types.js'
 
-// -- Constants ----------------------------------------------------------------
+// -- Constants --------------------------------------------------------------------------------------------------------
 
 export const DEFAULT_HOST = 'github.com'
 const SHA_RE = /^[0-9a-f]{40}$/i
-// A valid GitHub host is a DNS name (FQDN), optionally with a port. Requiring a
-// dot-separated name whose final label starts with a letter rejects userinfo
-// (`github.com@evil.com`), embedded paths (`github.com/x`), `localhost`, and IP
-// literals (`127.0.0.1`, `169.254.169.254`) -- all of which would otherwise let
-// workspace-configured hosts redirect token-bearing requests (SSRF / leak).
+// A valid GitHub host is a DNS name (FQDN), optionally with a port.
+// Requiring a dot-separated name whose final label starts with a letter rejects userinfo (`github.com@evil.com`),
+// embedded paths (`github.com/x`), `localhost`, and IP literals (`127.0.0.1`, `169.254.169.254`) -- all of which would
+// otherwise let workspace-configured hosts redirect token-bearing requests (SSRF / leak).
 const HOST_RE =
   /^(?=.{1,253}(?::\d{1,5})?$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?(?::\d{1,5})?$/i
 const VERSION_RE = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/
@@ -26,25 +26,29 @@ const VERSION_RE = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?$/
 const SHA_TTL = 30 * 24 * 60 * 60_000
 const TAG_TTL = 7 * 24 * 60 * 60_000
 const BRANCH_TTL = 60 * 60_000
-// Negative / transient results get a short TTL so editors recover quickly after
-// a network blip or a race during `git push`.
+// Negative / transient results get a short TTL so editors recover quickly after a network blip or
+// a race during `git push`.
 const NOT_FOUND_TTL = 5 * 60_000
 const TRANSIENT_FAILURE_TTL = 30_000
 // An oversized action.yml is unlikely to shrink soon; cache the skip for 24 h.
 const OVERSIZED_TTL = 24 * 60 * 60_000
 
-// Raw content fetch size limit. Legitimate action.yml files are rarely larger
-// than a few kilobytes; 500 KB is orders of magnitude above that. Rejecting
-// larger bodies prevents a rogue or misconfigured action from allocating large
-// amounts of memory in the extension host process.
+// Raw content fetch size limit. Legitimate action.yml files are rarely larger than a few kilobytes;
+// 500 KB is orders of magnitude above that.
+// Rejecting larger bodies prevents a rogue or misconfigured action from allocating large amounts of memory in the
+// extension host process.
 export const MAX_RESPONSE_BODY_BYTES = 500_000
 // API responses for tags and branch refs are cached for 1 hour.
 const TAGS_TTL = 60 * 60_000
 const REF_TTL = 60 * 60_000
+// Tag pagination: page size and the page cap that bounds requests for repos with very large tag histories
+// (MAX_TAG_PAGES * TAGS_PER_PAGE tags covered).
+const TAGS_PER_PAGE = 100
+const MAX_TAG_PAGES = 10
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 5_000
 
-// -- Types --------------------------------------------------------------------
+// -- Types ------------------------------------------------------------------------------------------------------------
 
 export interface RemoteResolverOptions {
   hosts: string[]
@@ -73,12 +77,15 @@ interface CommitResponse {
 interface ResolvedRef {
   sha: string
   commitUrl: string
+  refKind: RemoteRefKind
+  refUrl: string
 }
 
 interface VersionedRemoteRef {
   owner: string
   repo: string
   ref: string
+  pinInfo: string | undefined
   fullName: string
 }
 
@@ -87,8 +94,8 @@ interface RemoteActionInspection {
   complete: boolean
 }
 
-// Carries the fields logged at resolve.start / resolve.miss without coupling
-// resolveMetadataAcrossHosts to the full UsesReference union.
+// Carries the fields logged at resolve.start / resolve.miss without coupling resolveMetadataAcrossHosts to the full
+// UsesReference union.
 interface RemoteReferenceLogInfo {
   kind: 'remote-action' | 'reusable-workflow'
   raw: string
@@ -98,8 +105,8 @@ interface RemoteReferenceLogInfo {
   path: string
 }
 
-// -- Module-level cache state -------------------------------------------------
-//
+// -- Module-level cache state -----------------------------------------------------------------------------------------
+
 // Shared across all provider invocations within the extension's lifetime.
 // Call clearRemoteCache() to reset (e.g. after token changes or on demand).
 
@@ -110,16 +117,16 @@ const inFlight = new Map<string, Promise<ActionMetadata | undefined>>()
 const apiInFlight = new Map<string, Promise<unknown>>()
 let nextRequestId = 1
 
-// -- Host validation ----------------------------------------------------------
+// -- Host validation --------------------------------------------------------------------------------------------------
 
 export function isValidHost(host: string): boolean {
   return HOST_RE.test(host)
 }
 
-// Canonical form of a single host: scheme and trailing slashes stripped and
-// lower-cased (DNS is case-insensitive). Returns undefined for invalid hosts.
-// Used both for resolution and for the token storage key so that a token set as
-// `https://GitHub.com/` is still found when looking up the normalized `github.com`.
+// Canonical form of a single host: scheme and trailing slashes stripped and lower-cased (DNS is case-insensitive).
+// Returns undefined for invalid hosts.
+// Used both for resolution and for the token storage key so that a token set as `https://GitHub.com/` is still found
+// when looking up the normalized `github.com`.
 export function normalizeHost(host: string): string | undefined {
   const normalized = host
     .trim()
@@ -134,7 +141,7 @@ export function normalizeHosts(hosts: string[]): string[] {
   return [...new Set(normalized.length > 0 ? normalized : [DEFAULT_HOST])]
 }
 
-// -- Public API ---------------------------------------------------------------
+// -- Public API -------------------------------------------------------------------------------------------------------
 
 export function clearRemoteCache() {
   remoteCache.clear()
@@ -182,7 +189,7 @@ export function resolveReusableWorkflowMetadata(
   )
 }
 
-// -- Multi-host resolution ----------------------------------------------------
+// -- Multi-host resolution --------------------------------------------------------------------------------------------
 
 async function resolveMetadataAcrossHosts(
   options: RemoteResolverOptions,
@@ -245,7 +252,7 @@ async function resolveMetadataAcrossHosts(
   return undefined
 }
 
-// -- Per-host resolution ------------------------------------------------------
+// -- Per-host resolution ----------------------------------------------------------------------------------------------
 
 function resolveReusableWorkflowMetadataOnHost(
   uses: ReusableWorkflowReference,
@@ -343,7 +350,7 @@ async function resolveRemoteMetadataOnHost(
   return undefined
 }
 
-// -- GitHub API helpers --------------------------------------------------------
+// -- GitHub API helpers -----------------------------------------------------------------------------------------------
 
 type RawFileResult = { ok: true; text: string } | { ok: false; cacheMs: number }
 
@@ -366,12 +373,8 @@ async function fetchRawGitHubContent(
       if (res.status === 403 || res.status === 429) return { ok: false, cacheMs: retryTtlFromHeaders(res.headers) }
       return { ok: false, cacheMs: TRANSIENT_FAILURE_TTL }
     }
-    const contentLength = Number(res.headers.get('content-length'))
-    if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BODY_BYTES) {
-      return { ok: false, cacheMs: OVERSIZED_TTL }
-    }
-    const text = await res.text()
-    if (text.length > MAX_RESPONSE_BODY_BYTES) return { ok: false, cacheMs: OVERSIZED_TTL }
+    const text = await readBoundedBody(res)
+    if (text === undefined) return { ok: false, cacheMs: OVERSIZED_TTL }
     return { ok: true, text }
   } catch {
     return { ok: false, cacheMs: TRANSIENT_FAILURE_TTL }
@@ -416,6 +419,7 @@ function inspectRemoteAction(
       owner: uses.owner,
       repo: uses.repo,
       ref: uses.ref,
+      pinInfo: uses.pinInfo,
       fullName: uses.path ? `${uses.owner}/${uses.repo}/${uses.path}` : `${uses.owner}/${uses.repo}`,
     },
     host,
@@ -433,6 +437,7 @@ function inspectReusableWorkflow(
       owner: uses.owner,
       repo: uses.repo,
       ref: uses.ref,
+      pinInfo: uses.pinInfo,
       fullName: `${uses.owner}/${uses.repo}/${uses.workflowPath}`,
     },
     host,
@@ -448,19 +453,24 @@ async function inspectVersionedRemoteRef(
   const maybeTags = await getTags(refData.owner, refData.repo, host, options)
   const complete = maybeTags !== undefined
   const tags = maybeTags ?? []
-  const resolved = await resolveSha(refData, tags, host, options)
+  const resolved = await resolveSha(refData, tags, complete, host, options)
   if (!resolved) return { action: undefined, complete: false }
-  const version = selectVersion(tags, resolved.sha) ?? (SHA_RE.test(refData.ref) ? undefined : refData.ref)
+  const tag = selectVersion(tags, resolved.sha)
+  // Resolved semver tag for diagnostics logging only (undefined for a bare SHA with no matching tag). Distinct from
+  // pinInfo, which is the hover label and may instead echo a verified pin comment or 'sha pin'.
+  const version = tag ?? (SHA_RE.test(refData.ref) ? undefined : refData.ref)
+  const pinInfo = await resolvePinInfo(refData, tags, complete, resolved, tag, host, options)
   const latest = buildLatest(refData, tags, resolved.sha, host)
 
   return {
     action: {
       fullName: refData.fullName,
       repoUrl: repoUrl(host, refData.owner, refData.repo),
+      pinInfo: pinInfo.label,
+      pinInfoUrl: pinInfo.url,
       resolvedSha: resolved.sha,
       commitUrl: resolved.commitUrl,
       version,
-      versionUrl: version ? treeUrl(host, refData.owner, refData.repo, version) : undefined,
       latest,
     },
     complete,
@@ -477,35 +487,110 @@ function getTags(
     `tags:${host}:${owner}/${repo}`,
     tagsCache,
     TAGS_TTL,
-    async () => {
-      const data = await github<TagResponse[]>(
-        `/repos/${encode(owner)}/${encode(repo)}/tags?per_page=100`,
+    () => fetchAllTags(owner, repo, host, options),
+    options,
+  )
+}
+
+// The tags endpoint is paginated at TAGS_PER_PAGE entries. A repo with more tags than one page would otherwise hide the
+// latest release and misclassify tag refs as branches, so follow pages until a short (final) page arrives.
+// MAX_TAG_PAGES bounds the request count for repos with thousands of tags.
+async function fetchAllTags(
+  owner: string,
+  repo: string,
+  host: string,
+  options: RemoteResolverOptions,
+): Promise<TagRef[]> {
+  const tags: TagRef[] = []
+  for (let page = 1; page <= MAX_TAG_PAGES; page++) {
+    const query = page === 1 ? `?per_page=${TAGS_PER_PAGE}` : `?per_page=${TAGS_PER_PAGE}&page=${page}`
+    const data = await github<TagResponse[]>(`/repos/${encode(owner)}/${encode(repo)}/tags${query}`, host, options)
+    for (const tag of data) tags.push({ name: tag.name, sha: tag.commit.sha })
+    if (data.length < TAGS_PER_PAGE) break
+  }
+  return tags
+}
+
+// Derives the human-readable label shown after the resolved SHA. Precedence:
+//   - SHA pin: a verified inline comment (resolves to the same SHA) wins, else the most specific tag at the SHA,
+//     else 'sha pin'.
+//   - tag/branch/ref: the most specific tag at the SHA wins (so `@v6` or `@main` is upgraded to the concrete release
+//     behind it), else the literal ref the user pinned.
+async function resolvePinInfo(
+  refData: VersionedRemoteRef,
+  tags: TagRef[],
+  tagsComplete: boolean,
+  resolved: ResolvedRef,
+  tag: string | undefined,
+  host: string,
+  options: RemoteResolverOptions,
+): Promise<{ label: string; url: string }> {
+  if (resolved.refKind === 'sha') {
+    const candidate = cleanPinInfo(refData.pinInfo)
+    if (candidate && candidate !== refData.ref) {
+      const candidateResolved = await resolveSha(
+        { owner: refData.owner, repo: refData.repo, ref: candidate },
+        tags,
+        tagsComplete,
         host,
         options,
       )
-      return data.map((tag) => ({ name: tag.name, sha: tag.commit.sha }))
-    },
-    options,
-  )
+      if (candidateResolved?.sha === resolved.sha) return { label: candidate, url: candidateResolved.refUrl }
+    }
+    if (tag) return { label: tag, url: treeUrl(host, refData.owner, refData.repo, tag) }
+    return { label: 'sha pin', url: resolved.refUrl }
+  }
+
+  if (tag) return { label: tag, url: treeUrl(host, refData.owner, refData.repo, tag) }
+  return { label: refData.ref, url: resolved.refUrl }
+}
+
+function cleanPinInfo(pinInfo: string | undefined): string | undefined {
+  const cleaned = pinInfo
+    ?.trim()
+    .replace(/^#+\s*/, '')
+    .trim()
+  if (!cleaned || !looksLikeRef(cleaned)) return undefined
+  return cleaned
+}
+
+// A pin comment is only resolved against the API when it could be a git ref.
+// Git ref names use a restricted character set and forbid spaces and `..` (see git-check-ref-format),
+// so prose like `# bumped by renovate` cannot drive a wasteful `/commits/<text>` request against the configured host.
+const REF_RE = /^[A-Za-z0-9](?:[A-Za-z0-9._\-/]*[A-Za-z0-9])?$/
+const MAX_REF_LENGTH = 128
+
+function looksLikeRef(value: string): boolean {
+  return value.length <= MAX_REF_LENGTH && !value.includes('..') && REF_RE.test(value)
 }
 
 function resolveSha(
   uses: Pick<VersionedRemoteRef, 'owner' | 'repo' | 'ref'>,
   tags: TagRef[],
+  tagsComplete: boolean,
   host: string,
   options: RemoteResolverOptions,
 ): Promise<ResolvedRef | undefined> {
-  if (SHA_RE.test(uses.ref))
-    return Promise.resolve({ sha: uses.ref, commitUrl: commitUrl(host, uses.owner, uses.repo, uses.ref) })
+  if (SHA_RE.test(uses.ref)) {
+    const url = commitUrl(host, uses.owner, uses.repo, uses.ref)
+    return Promise.resolve({ sha: uses.ref, commitUrl: url, refKind: 'sha', refUrl: url })
+  }
   const tag = tags.find((entry) => entry.name === uses.ref)
-  if (tag) return Promise.resolve({ sha: tag.sha, commitUrl: commitUrl(host, uses.owner, uses.repo, tag.sha) })
-  return getBranchSha(uses.owner, uses.repo, uses.ref, host, options)
+  if (tag)
+    return Promise.resolve({
+      sha: tag.sha,
+      commitUrl: commitUrl(host, uses.owner, uses.repo, tag.sha),
+      refKind: 'tag',
+      refUrl: treeUrl(host, uses.owner, uses.repo, uses.ref),
+    })
+  return getBranchSha(uses.owner, uses.repo, uses.ref, tagsComplete ? 'branch' : 'ref', host, options)
 }
 
 function getBranchSha(
   owner: string,
   repo: string,
   ref: string,
+  refKind: RemoteRefKind,
   host: string,
   options: RemoteResolverOptions,
 ): Promise<ResolvedRef | undefined> {
@@ -519,7 +604,12 @@ function getBranchSha(
         host,
         options,
       )
-      return { sha: commit.sha, commitUrl: commitUrl(host, owner, repo, commit.sha) }
+      return {
+        sha: commit.sha,
+        commitUrl: commitUrl(host, owner, repo, commit.sha),
+        refKind,
+        refUrl: treeUrl(host, owner, repo, ref),
+      }
     },
     options,
   )
@@ -539,12 +629,44 @@ async function github<T>(path: string, host: string, options: RemoteResolverOpti
     options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
   )
   if (!res.ok) throw new GitHubResponseError(res.status, retryTtlFromHeaders(res.headers))
-  return (await res.json()) as T
+  const text = await readBoundedBody(res)
+  if (text === undefined) throw new Error('GitHub API response body exceeds the size limit')
+  return JSON.parse(text) as T
 }
 
-// Deduplicates concurrent requests for the same key and stores the result in
-// cache. In-flight cleanup happens in the .finally() so it runs whether the
-// promise resolves or rejects.
+// Reads a response body, aborting once it exceeds MAX_RESPONSE_BODY_BYTES.
+// The Content-Length header is rejected up front, then the stream is consumed incrementally so a host that omits or
+// understates the header still cannot force the extension to buffer an unbounded body into memory.
+// Returns undefined when the limit is exceeded.
+async function readBoundedBody(res: Response): Promise<string | undefined> {
+  const contentLength = Number(res.headers.get('content-length'))
+  if (Number.isFinite(contentLength) && contentLength > MAX_RESPONSE_BODY_BYTES) return undefined
+
+  const reader = res.body?.getReader()
+  if (!reader) {
+    const text = await res.text()
+    return text.length > MAX_RESPONSE_BODY_BYTES ? undefined : text
+  }
+
+  const decoder = new TextDecoder()
+  let text = ''
+  let total = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    total += value.byteLength
+    if (total > MAX_RESPONSE_BODY_BYTES) {
+      await reader.cancel()
+      return undefined
+    }
+    text += decoder.decode(value, { stream: true })
+  }
+  text += decoder.decode()
+  return text
+}
+
+// Deduplicates concurrent requests for the same key and stores the result in cache.
+// In-flight cleanup happens in the .finally() so it runs whether the promise resolves or rejects.
 function cachedApi<T>(
   key: string,
   cache: TtlCache<T | undefined>,
@@ -587,11 +709,10 @@ function cachedApi<T>(
   return promise
 }
 
-// -- Tag and version selection -------------------------------------------------
+// -- Tag and version selection ----------------------------------------------------------------------------------------
 
-// When multiple tags point to the same SHA (e.g. `v1`, `v1.2`, `v1.2.3`),
-// prefer the most specific semver tag. Falls back to the raw ref when no tag
-// matches the SHA.
+// When multiple tags point to the same SHA (e.g. `v1`, `v1.2`, `v1.2.3`), prefer the most specific semver tag.
+// Falls back to the raw ref when no tag matches the SHA.
 export function selectVersion(tags: TagRef[], sha: string): string | undefined {
   let best: { name: string; segments: number; parts: [number, number, number] } | undefined
   for (const tag of tags) {
@@ -660,12 +781,12 @@ function ttlForRef(ref: string): number {
 }
 
 function metadataTtlForInspection(ref: string, inspection: RemoteActionInspection): number {
-  // If tag resolution was incomplete (e.g. tags API failed), use a short TTL so
-  // we retry soon instead of serving stale version info for hours.
+  // If tag resolution was incomplete (e.g. tags API failed), use a short TTL so we retry soon instead of serving stale
+  // version info for hours.
   return inspection.complete && inspection.action ? ttlForRef(ref) : TRANSIENT_FAILURE_TTL
 }
 
-// -- Logging helpers -----------------------------------------------------------
+// -- Logging helpers --------------------------------------------------------------------------------------------------
 
 function remoteSourceSummary(metadata: ActionMetadata): Record<string, unknown> | undefined {
   if (metadata.source.kind !== 'remote') return undefined
@@ -714,7 +835,7 @@ function keyHost(key: string): string {
   return match?.[1] ?? 'unknown'
 }
 
-// -- HTTP ----------------------------------------------------------------------
+// -- HTTP -------------------------------------------------------------------------------------------------------------
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return fetch(url, init)
@@ -730,11 +851,10 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-// -- URL builders --------------------------------------------------------------
-//
-// All values that originate from untrusted workflow content (owner, repo, ref,
-// path) are passed through encode() so they cannot inject characters that break
-// out of a Markdown link target in the hover (e.g. a raw `)` closes the link).
+// -- URL builders -----------------------------------------------------------------------------------------------------
+
+// All values that originate from untrusted workflow content (owner, repo, ref, path) are passed through encode() so
+// they cannot inject characters that break out of a Markdown link target in the hover (e.g. a raw `)` closes the link).
 
 function apiBaseUrl(host: string): string {
   return host === DEFAULT_HOST ? 'https://api.github.com' : `${webBaseUrl(host)}/api/v3`
@@ -761,8 +881,8 @@ function blobUrl(host: string, owner: string, repo: string, ref: string, filePat
 }
 
 function encode(value: string): string {
-  // encodeURIComponent leaves `!'()*` unescaped, but `)` (and `(`) break out of
-  // a Markdown link target in the hover, so escape them too.
+  // encodeURIComponent leaves `!'()*` unescaped, but `)` (and `(`) break out of a Markdown link target in the hover,
+  // so escape them too.
   return encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`)
 }
 
@@ -773,7 +893,7 @@ function encodePath(value: string): string {
     .join('/')
 }
 
-// -- Error types ---------------------------------------------------------------
+// -- Error types ------------------------------------------------------------------------------------------------------
 
 class GitHubResponseError extends Error {
   constructor(

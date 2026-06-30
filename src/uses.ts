@@ -28,10 +28,10 @@ export function parseUsesValue(rawValue: string): UsesReference | undefined {
   const path = parts.slice(2).join('/')
 
   if (isReusableWorkflowPath(path)) {
-    return { kind: 'reusable-workflow', owner, repo, workflowPath: path, ref, raw }
+    return { kind: 'reusable-workflow', owner, repo, workflowPath: path, ref, pinInfo: undefined, raw }
   }
 
-  return { kind: 'remote-action', owner, repo, path, ref, raw }
+  return { kind: 'remote-action', owner, repo, path, ref, pinInfo: undefined, raw }
 }
 
 function isReusableWorkflowPath(path: string): boolean {

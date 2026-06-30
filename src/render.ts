@@ -22,13 +22,9 @@ export function titleWithMetadata(metadata: ActionMetadata, fallbackTitle: strin
 export function actionVersionLines(metadata: ActionMetadata): string[] {
   if (metadata.source.kind !== 'remote' || !metadata.source.action) return []
   const { action } = metadata.source
-  const lines = [
-    `Current: ${pinnedActionLine(action, action.resolvedSha, action.commitUrl, action.version, action.versionUrl)}`,
-  ]
+  const lines = [`Current: ${pinnedActionLine(action, action.resolvedSha, action.commitUrl, currentPinInfo(action))}`]
   if (action.latest && !action.latest.isCurrent) {
-    lines.push(
-      `Latest: ${pinnedActionLine(action, action.latest.sha, action.latest.commitUrl, action.latest.name, action.latest.url)}`,
-    )
+    lines.push(`Latest: ${pinnedActionLine(action, action.latest.sha, action.latest.commitUrl, latestPinInfo(action))}`)
   }
   return lines
 }
@@ -82,26 +78,37 @@ function metadataLabel(metadata: ActionMetadata): string {
   return metadata.source.path.split(/[\\/]/).pop() ?? metadata.source.path
 }
 
-function pinnedActionLine(
-  action: RemoteActionInfo,
-  sha: string,
-  shaUrl: string,
-  version: string | undefined,
-  versionUrl: string | undefined,
-): string {
-  const reference = plainActionReference(action, sha, version)
+function pinnedActionLine(action: RemoteActionInfo, sha: string, shaUrl: string, info: PinInfo): string {
+  const reference = plainActionReference(action, sha, info.label)
   const actionPart = action.repoUrl
     ? `[\`${codeEsc(action.fullName)}\`](${action.repoUrl})`
     : `\`${codeEsc(action.fullName)}\``
   const shaPart = `[\`${codeEsc(sha)}\`](${shaUrl})`
-  const versionPart = version
-    ? ` # ${versionUrl ? `[\`${codeEsc(version)}\`](${versionUrl})` : `\`${codeEsc(version)}\``}`
-    : ''
-  return `${actionPart}@${shaPart}${versionPart} ${copyActionReferenceLink(reference)}`
+  const infoPart = info.url ? `[\`${codeEsc(info.label)}\`](${info.url})` : `\`${codeEsc(info.label)}\``
+  return `${actionPart}@${shaPart} # ${infoPart} ${copyActionReferenceLink(reference)}`
 }
 
-function plainActionReference(action: RemoteActionInfo, sha: string, version: string | undefined): string {
-  return `${action.fullName}@${sha}${version ? ` # ${version}` : ''}`
+interface PinInfo {
+  label: string
+  url: string | undefined
+}
+
+function currentPinInfo(action: RemoteActionInfo): PinInfo {
+  return {
+    label: action.pinInfo,
+    url: action.pinInfoUrl,
+  }
+}
+
+function latestPinInfo(action: RemoteActionInfo): PinInfo {
+  return {
+    label: action.latest?.name ?? 'latest',
+    url: action.latest?.url,
+  }
+}
+
+function plainActionReference(action: RemoteActionInfo, sha: string, info: string): string {
+  return `${action.fullName}@${sha} # ${info}`
 }
 
 function copyActionReferenceLink(reference: string): string {

@@ -88,6 +88,25 @@ jobs:
     expect(inputNameAtOffset(steps[0], text.indexOf('token'))).toBe('token')
   })
 
+  it('keeps inline uses comments as pin info for remote references', () => {
+    const text = `jobs:
+  test:
+    steps:
+      - uses: owner/repo@a81bbbf8298c0fa03ea29cdc473d45769f953675 # v1.2.1
+`
+
+    const steps = buildWorkflowIndex(text)
+
+    expect(steps).toHaveLength(1)
+    expect(steps[0].uses).toMatchObject({
+      kind: 'remote-action',
+      owner: 'owner',
+      repo: 'repo',
+      ref: 'a81bbbf8298c0fa03ea29cdc473d45769f953675',
+      pinInfo: '# v1.2.1',
+    })
+  })
+
   it('does not index uses-looking text inside run block scalars', () => {
     const text = `jobs:
   test:

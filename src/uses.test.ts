@@ -9,6 +9,7 @@ describe('parseUsesValue', () => {
       repo: 'checkout',
       path: '',
       ref: 'v6',
+      pinInfo: undefined,
       raw: 'actions/checkout@v6',
     })
   })
