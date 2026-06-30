@@ -2,7 +2,7 @@
   "name": "withcraft",
   "displayName": "Withcraft",
   "description": "Show GitHub Action inputs and outputs where you use them in workflow files.",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "publisher": "goeselt",
   "icon": "resources/icon.png",
   "license": "MIT",
