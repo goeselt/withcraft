@@ -498,6 +498,128 @@ describe('resolveRemoteMetadata', () => {
     expect(metadata.source.action?.latest).toMatchObject({ name: 'v9.9.9', sha, isCurrent: true })
   })
 
+  it('reports the default branch HEAD as latest for a bare SHA pin of a tagless repo', async () => {
+    const pinnedSha = '1111111111111111111111111111111111111111'
+    const headSha = '2222222222222222222222222222222222222222'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) return jsonResponse([])
+        if (requestUrl.endsWith('/repos/owner/repo')) return jsonResponse({ default_branch: 'main' })
+        if (requestUrl.endsWith('/repos/owner/repo/commits/main')) return jsonResponse({ sha: headSha })
+        if (requestUrl.endsWith(`/repos/owner/repo/contents/action.yml?ref=${pinnedSha}`)) {
+          return textResponse('name: Tagless Action\n')
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: pinnedSha, raw: `owner/repo@${pinnedSha}` },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.pinInfo).toBe('sha pin')
+    expect(metadata.source.action?.latest).toEqual({
+      name: 'main',
+      url: 'https://github.com/owner/repo/tree/main',
+      sha: headSha,
+      commitUrl: `https://github.com/owner/repo/commit/${headSha}`,
+      isCurrent: false,
+    })
+  })
+
+  it('marks the default branch latest current when the bare SHA pin already is the HEAD', async () => {
+    const sha = '1111111111111111111111111111111111111111'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) return jsonResponse([])
+        if (requestUrl.endsWith('/repos/owner/repo')) return jsonResponse({ default_branch: 'main' })
+        if (requestUrl.endsWith('/repos/owner/repo/commits/main')) return jsonResponse({ sha })
+        if (requestUrl.endsWith(`/repos/owner/repo/contents/action.yml?ref=${sha}`)) {
+          return textResponse('name: Tagless Action\n')
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: sha, raw: `owner/repo@${sha}` },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.latest?.isCurrent).toBe(true)
+  })
+
+  it('does not look up the default branch when the repo has a semver tag', async () => {
+    const pinnedSha = '1111111111111111111111111111111111111111'
+    const latestSha = '2222222222222222222222222222222222222222'
+    const urls: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        urls.push(requestUrl)
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) {
+          return jsonResponse([{ name: 'v2', commit: { sha: latestSha } }])
+        }
+        if (requestUrl.endsWith(`/repos/owner/repo/contents/action.yml?ref=${pinnedSha}`)) {
+          return textResponse('name: Tagged Action\n')
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: pinnedSha, raw: `owner/repo@${pinnedSha}` },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(urls).not.toContain('https://api.github.com/repos/owner/repo')
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.latest).toMatchObject({ name: 'v2', sha: latestSha, isCurrent: false })
+  })
+
+  it('does not fall back to the default branch for a tagless branch pin', async () => {
+    const headSha = '1111111111111111111111111111111111111111'
+    const urls: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        urls.push(requestUrl)
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) return jsonResponse([])
+        if (requestUrl.endsWith('/repos/owner/repo/commits/main')) return jsonResponse({ sha: headSha })
+        if (requestUrl.endsWith('/repos/owner/repo/contents/action.yml?ref=main')) {
+          return textResponse('name: Branch Action\n')
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: 'main', raw: 'owner/repo@main' },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(urls).not.toContain('https://api.github.com/repos/owner/repo')
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.latest).toBeUndefined()
+  })
+
   it('includes version metadata for remote reusable workflows', async () => {
     const sha = 'df4cb1c069e1874edd31b4311f1884172cec0e10'
     const latestSha = 'a81bbbf8298c0fa03ea29cdc473d45769f953675'

@@ -1,6 +1,7 @@
 import type { ActionInput, ActionMetadata, ActionOutput, RemoteActionInfo, UsesReference } from './types.js'
 
 export const COPY_ACTION_REFERENCE_COMMAND = 'withcraft.copyActionReference'
+export const REFRESH_METADATA_COMMAND = 'withcraft.refreshMetadata'
 
 export function inputSummary(metadata: ActionMetadata): string {
   if (metadata.inputs.length === 0) return 'No declared inputs.'
@@ -15,8 +16,15 @@ export function outputSummary(metadata: ActionMetadata): string {
 export function titleWithMetadata(metadata: ActionMetadata, fallbackTitle: string): string {
   const title = esc(metadata.name ?? fallbackTitle)
   const label = metadataLabel(metadata)
-  if (metadata.source.kind === 'remote') return `**${title}** ([\`${codeEsc(label)}\`](${metadata.source.url}))`
-  return `**${title}** (\`${codeEsc(label)}\`)`
+  const source =
+    metadata.source.kind === 'remote' ? `([\`${codeEsc(label)}\`](${metadata.source.url}))` : `(\`${codeEsc(label)}\`)`
+  return `**${title}** ${source} ${refreshMetadataLink()}`
+}
+
+// Command link rendered as a bare refresh icon next to the source-file link. Clicking it runs the same refresh as the
+// footer link; VS Code dismisses the hover on command links, and the handler reopens it with freshly fetched data.
+function refreshMetadataLink(): string {
+  return `[$(refresh)](command:${REFRESH_METADATA_COMMAND} "Refresh metadata")`
 }
 
 export function actionVersionLines(metadata: ActionMetadata): string[] {
