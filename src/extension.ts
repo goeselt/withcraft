@@ -17,6 +17,7 @@ import {
   compareOutputs,
   actionVersionLines,
   COPY_ACTION_REFERENCE_COMMAND,
+  REFRESH_METADATA_COMMAND,
   esc,
   findInput,
   inputDocumentation,
@@ -41,7 +42,6 @@ import {
 // -- Constants --------------------------------------------------------------------------------------------------------
 
 const TOKEN_SECRET_PREFIX = 'withcraft.githubToken.'
-const REFRESH_METADATA_COMMAND = 'withcraft.refreshMetadata'
 const SET_TOKEN_COMMAND = 'withcraft.setGitHubToken'
 const GH_AUTH_TOKEN_TIMEOUT_MS = 5000
 

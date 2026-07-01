@@ -6,6 +6,7 @@ import {
   inputDocumentation,
   inputSummary,
   outputSummary,
+  REFRESH_METADATA_COMMAND,
   titleWithMetadata,
 } from './render.js'
 import type { ActionMetadata } from './types.js'
@@ -64,10 +65,20 @@ const metadata: ActionMetadata = {
   },
 }
 
-test('titleWithMetadata places the metadata link next to the title', () => {
+const refreshIcon = `[$(refresh)](command:${REFRESH_METADATA_COMMAND} "Refresh metadata")`
+
+test('titleWithMetadata places the metadata link and a refresh icon next to the title', () => {
   expect(titleWithMetadata(metadata, 'actions/setup-node@v6')).toBe(
-    '**Setup Node.js environment** ([`action.yml`](https://github.com/actions/setup-node/blob/v6/action.yml))',
+    `**Setup Node.js environment** ([\`action.yml\`](https://github.com/actions/setup-node/blob/v6/action.yml)) ${refreshIcon}`,
   )
+})
+
+test('titleWithMetadata renders the refresh icon for local sources too', () => {
+  const local: ActionMetadata = {
+    ...metadata,
+    source: { kind: 'local', path: '/repo/.github/actions/build/action.yml', uri: 'file:///repo/x' },
+  }
+  expect(titleWithMetadata(local, 'fallback')).toBe(`**Setup Node.js environment** (\`action.yml\`) ${refreshIcon}`)
 })
 
 test('actionVersionLines renders the canonical action reference', () => {
