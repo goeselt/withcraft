@@ -42,7 +42,7 @@ jobs:
 
       - id: intent
         name: Intent Release
-        uses: goeselt/intent@e51fe139644bfa27735dabeffc71251effb594be # v1.2.1
+        uses: goeselt/intent@2dd369992f542d83bdc27975b078e1242eb07190 # v1.2.2
         with:
           initial-version: '1.4.0'
 
@@ -81,7 +81,7 @@ jobs:
 
       - name: Attest Build Provenance
         if: steps.intent.outputs.release-needed == 'true'
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
           subject-path: ${{ steps.pkg.outputs.vsix }}
 
