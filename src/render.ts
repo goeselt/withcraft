@@ -17,9 +17,7 @@ export function titleWithMetadata(metadata: ActionMetadata, fallbackTitle: strin
   const title = esc(metadata.name ?? fallbackTitle)
   const label = metadataLabel(metadata)
   const source =
-    metadata.source.kind === 'remote'
-      ? `([\`${codeEsc(label)}\`](${metadata.source.url}))`
-      : `(\`${codeEsc(label)}\`)`
+    metadata.source.kind === 'remote' ? `([\`${codeEsc(label)}\`](${metadata.source.url}))` : `(\`${codeEsc(label)}\`)`
   return `**${title}** ${source} ${refreshMetadataLink()}`
 }
 
