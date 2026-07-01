@@ -41,6 +41,9 @@ export const MAX_RESPONSE_BODY_BYTES = 500_000
 // API responses for tags and branch refs are cached for 1 hour.
 const TAGS_TTL = 60 * 60_000
 const REF_TTL = 60 * 60_000
+// A repository's default branch name rarely changes; cache it for a day. The branch HEAD it points at is resolved
+// separately through getBranchSha (REF_TTL), so a new commit is still picked up within the hour.
+const REPO_TTL = 24 * 60 * 60_000
 // Tag pagination: page size and the page cap that bounds requests for repos with very large tag histories
 // (MAX_TAG_PAGES * TAGS_PER_PAGE tags covered).
 const TAGS_PER_PAGE = 100
@@ -72,6 +75,10 @@ interface TagResponse {
 
 interface CommitResponse {
   sha: string
+}
+
+interface RepoResponse {
+  default_branch: string
 }
 
 interface ResolvedRef {
@@ -113,6 +120,7 @@ interface RemoteReferenceLogInfo {
 const remoteCache = new TtlCache<ActionMetadata | undefined>(1000)
 const tagsCache = new TtlCache<TagRef[] | undefined>(1000)
 const refCache = new TtlCache<ResolvedRef | undefined>(1000)
+const repoCache = new TtlCache<string | undefined>(1000)
 const inFlight = new Map<string, Promise<ActionMetadata | undefined>>()
 const apiInFlight = new Map<string, Promise<unknown>>()
 let nextRequestId = 1
@@ -147,6 +155,7 @@ export function clearRemoteCache() {
   remoteCache.clear()
   tagsCache.clear()
   refCache.clear()
+  repoCache.clear()
   inFlight.clear()
   apiInFlight.clear()
 }
@@ -460,7 +469,14 @@ async function inspectVersionedRemoteRef(
   // pinInfo, which is the hover label and may instead echo a verified pin comment or 'sha pin'.
   const version = tag ?? (SHA_RE.test(refData.ref) ? undefined : refData.ref)
   const pinInfo = await resolvePinInfo(refData, tags, complete, resolved, tag, host, options)
-  const latest = buildLatest(refData, tags, resolved.sha, host)
+  // For a bare SHA pin of a repo with no semver tag there is no release to call "latest", so fall back to the default
+  // branch HEAD (labelled with the branch name). Gated on `complete` so a transient tags-API failure is not mistaken
+  // for a tagless repo.
+  const latest =
+    buildLatest(refData, tags, resolved.sha, host) ??
+    (complete && resolved.refKind === 'sha'
+      ? await resolveDefaultBranchLatest(refData, resolved.sha, host, options)
+      : undefined)
 
   return {
     action: {
@@ -759,6 +775,45 @@ function buildLatest(
     commitUrl: commitUrl(host, uses.owner, uses.repo, latest.sha),
     isCurrent: latest.sha === sha,
   }
+}
+
+// Latest for a tagless repo: the default branch HEAD, labelled with the branch name. isCurrent is set when the pinned
+// SHA already is that HEAD, so the caller/render suppresses a redundant line.
+async function resolveDefaultBranchLatest(
+  refData: VersionedRemoteRef,
+  pinnedSha: string,
+  host: string,
+  options: RemoteResolverOptions,
+): Promise<LatestActionVersion | undefined> {
+  const branch = await getDefaultBranch(refData.owner, refData.repo, host, options)
+  if (!branch) return undefined
+  const head = await getBranchSha(refData.owner, refData.repo, branch, 'branch', host, options)
+  if (!head) return undefined
+  return {
+    name: branch,
+    url: head.refUrl,
+    sha: head.sha,
+    commitUrl: head.commitUrl,
+    isCurrent: head.sha === pinnedSha,
+  }
+}
+
+function getDefaultBranch(
+  owner: string,
+  repo: string,
+  host: string,
+  options: RemoteResolverOptions,
+): Promise<string | undefined> {
+  return cachedApi(
+    `repo:${host}:${owner}/${repo}`,
+    repoCache,
+    REPO_TTL,
+    async () => {
+      const data = await github<RepoResponse>(`/repos/${encode(owner)}/${encode(repo)}`, host, options)
+      return data.default_branch
+    },
+    options,
+  )
 }
 
 function parseVersion(name: string): { parts: [number, number, number]; segments: number } | undefined {
