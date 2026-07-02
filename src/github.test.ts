@@ -642,7 +642,14 @@ describe('resolveRemoteMetadata', () => {
     )
 
     const metadata = await resolveRemoteMetadata(
-      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: missingSha, raw: `owner/repo@${missingSha}` },
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: missingSha,
+        raw: `owner/repo@${missingSha}`,
+      },
       { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
     )
 
@@ -678,7 +685,14 @@ describe('resolveRemoteMetadata', () => {
     )
 
     const metadata = await resolveRemoteMetadata(
-      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: missingSha, raw: `owner/repo@${missingSha}` },
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: missingSha,
+        raw: `owner/repo@${missingSha}`,
+      },
       { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
     )
 
@@ -698,7 +712,14 @@ describe('resolveRemoteMetadata', () => {
     )
 
     const metadata = await resolveRemoteMetadata(
-      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: missingSha, raw: `owner/repo@${missingSha}` },
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: missingSha,
+        raw: `owner/repo@${missingSha}`,
+      },
       { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
     )
 

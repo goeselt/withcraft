@@ -32,9 +32,11 @@ export function actionVersionLines(metadata: ActionMetadata): string[] {
   if (metadata.source.kind !== 'remote' || !metadata.source.action) return []
   const { action } = metadata.source
   if (action.currentUnresolved) {
-    const lines = [`Current: \`${codeEsc(action.fullName)}@${codeEsc(action.resolvedSha)}\` — not found`]
+    const lines = [`Current: \`${codeEsc(action.fullName)}@${codeEsc(action.resolvedSha)}\` -- not found`]
     if (action.latest) {
-      lines.push(`Latest: ${pinnedActionLine(action, action.latest.sha, action.latest.commitUrl, latestPinInfo(action))}`)
+      lines.push(
+        `Latest: ${pinnedActionLine(action, action.latest.sha, action.latest.commitUrl, latestPinInfo(action))}`,
+      )
     }
     return lines
   }

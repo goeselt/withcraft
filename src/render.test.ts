@@ -248,7 +248,7 @@ test('actionVersionLines marks an unresolved pinned SHA as not found and shows l
   }
 
   expect(actionVersionLines(fallback)).toEqual([
-    'Current: `actions/setup-node@01ceeba31f0d26eaaf8fbb4a60162001ee138d5c` — not found',
+    'Current: `actions/setup-node@01ceeba31f0d26eaaf8fbb4a60162001ee138d5c` -- not found',
     `Latest: [\`actions/setup-node\`](https://github.com/actions/setup-node)` +
       `@[\`bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
       ` # [\`v6.1.0\`](https://github.com/actions/setup-node/tree/v6.1.0) ${copyLink(
@@ -316,9 +316,11 @@ test('inputInsertText places the default as an escaped snippet placeholder', () 
       name: 'token',
       description: '',
       required: false,
+      // eslint-disable-next-line no-template-curly-in-string -- literal GitHub Actions expression syntax, not interpolation
       default: '${{ github.token }}',
       deprecationMessage: undefined,
     }),
+    // eslint-disable-next-line no-template-curly-in-string -- literal VS Code snippet syntax, not interpolation
   ).toBe('token: ${1:\\${{ github.token \\}\\}}')
 })
 
