@@ -23,6 +23,12 @@ export function parseUsesValue(rawValue: string): UsesReference | undefined {
   const parts = actionPath.split('/')
   if (parts.length < 2) return undefined
 
+  // `.`/`..`/empty segments would survive URL encoding (encodeURIComponent leaves dots raw) and let a crafted
+  // `uses:` value traverse out of `/repos/<owner>/<repo>/...` to arbitrary API paths on the configured host,
+  // with the user's token attached. Reject the reference instead.
+  if (parts.some((segment) => !isSafePathSegment(segment))) return undefined
+  if (ref === '.' || ref === '..') return undefined
+
   const owner = parts[0]
   const repo = parts[1]
   const path = parts.slice(2).join('/')
@@ -32,6 +38,10 @@ export function parseUsesValue(rawValue: string): UsesReference | undefined {
   }
 
   return { kind: 'remote-action', owner, repo, path, ref, pinInfo: undefined, raw }
+}
+
+function isSafePathSegment(segment: string): boolean {
+  return segment !== '' && segment !== '.' && segment !== '..'
 }
 
 function isReusableWorkflowPath(path: string): boolean {

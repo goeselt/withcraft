@@ -16,9 +16,10 @@ export function outputSummary(metadata: ActionMetadata): string {
 export function titleWithMetadata(metadata: ActionMetadata, fallbackTitle: string): string {
   const title = esc(metadata.name ?? fallbackTitle)
   const label = metadataLabel(metadata)
-  const source =
-    metadata.source.kind === 'remote' ? `([\`${codeEsc(label)}\`](${metadata.source.url}))` : `(\`${codeEsc(label)}\`)`
-  return `**${title}** ${source} ${refreshMetadataLink()}`
+  // Both remote and local sources link the file label: remote to its blob URL, local to its file:// URI so the hover
+  // opens the on-disk action.yml / workflow.
+  const target = metadata.source.kind === 'remote' ? metadata.source.url : metadata.source.uri
+  return `**${title}** ([\`${codeEsc(label)}\`](${target})) ${refreshMetadataLink()}`
 }
 
 // Command link rendered as a bare refresh icon next to the source-file link. Clicking it runs the same refresh as the
@@ -30,6 +31,13 @@ function refreshMetadataLink(): string {
 export function actionVersionLines(metadata: ActionMetadata): string[] {
   if (metadata.source.kind !== 'remote' || !metadata.source.action) return []
   const { action } = metadata.source
+  if (action.currentUnresolved) {
+    const lines = [`Current: \`${codeEsc(action.fullName)}@${codeEsc(action.resolvedSha)}\` — not found`]
+    if (action.latest) {
+      lines.push(`Latest: ${pinnedActionLine(action, action.latest.sha, action.latest.commitUrl, latestPinInfo(action))}`)
+    }
+    return lines
+  }
   const lines = [`Current: ${pinnedActionLine(action, action.resolvedSha, action.commitUrl, currentPinInfo(action))}`]
   if (action.latest && !action.latest.isCurrent) {
     lines.push(`Latest: ${pinnedActionLine(action, action.latest.sha, action.latest.commitUrl, latestPinInfo(action))}`)
@@ -51,6 +59,24 @@ export function outputDocumentation(output: ActionOutput): string {
 
 export function findInput(metadata: ActionMetadata, name: string): ActionInput | undefined {
   return metadata.inputs.find((input) => input.name === name)
+}
+
+// Snippet text inserted when an input completion is accepted. The default value is placed as the first tab stop's
+// placeholder so it can be overtyped directly.
+export function inputInsertText(input: ActionInput): string {
+  return `${input.name}: ${input.default ? `\${1:${snippetEsc(input.default)}}` : '$1'}`
+}
+
+// Escapes snippet syntax characters inside a placeholder. Without this, defaults such as `${{ github.token }}`
+// (actions/checkout `token`) are parsed as nested snippet placeholders and insert mangled text.
+function snippetEsc(text: string): string {
+  return text.replace(/[\\$}]/g, (c) => `\\${c}`)
+}
+
+// Hover shown when a `with:` key is not among the action's declared inputs -- typically a typo or an input that was
+// removed in the pinned version. GitHub Actions itself only warns at run time ("Unexpected input(s)").
+export function undeclaredInputMessage(name: string): string {
+  return `$(warning) \`${codeEsc(name)}\` is not a declared input of this action.`
 }
 
 export function referenceLabel(uses: UsesReference): string {
@@ -120,7 +146,12 @@ function plainActionReference(action: RemoteActionInfo, sha: string, info: strin
 }
 
 function copyActionReferenceLink(reference: string): string {
-  const args = encodeURIComponent(JSON.stringify([reference]))
+  // encodeURIComponent leaves `!'()*` unescaped, but a `)` in the reference (parentheses are legal in GitHub file
+  // paths) would close the Markdown link target early and spill the rest of the arguments into the hover text.
+  const args = encodeURIComponent(JSON.stringify([reference])).replace(
+    /[!'()*]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  )
   return `[$(copy)](command:${COPY_ACTION_REFERENCE_COMMAND}?${args})`
 }
 

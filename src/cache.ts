@@ -5,8 +5,11 @@ export interface CacheEntry<T> {
 
 export class TtlCache<T> {
   private readonly entries = new Map<string, CacheEntry<T>>()
+  private maxEntries: number
 
-  constructor(private maxEntries: number) {}
+  constructor(maxEntries: number) {
+    this.maxEntries = normalizeMaxEntries(maxEntries, 1000)
+  }
 
   get(key: string, now = Date.now()): T | undefined {
     return this.getEntry(key, now)?.data
@@ -41,7 +44,7 @@ export class TtlCache<T> {
   }
 
   setMaxEntries(n: number) {
-    this.maxEntries = n
+    this.maxEntries = normalizeMaxEntries(n, this.maxEntries)
     while (this.entries.size > this.maxEntries) {
       const oldest = this.entries.keys().next().value
       if (!oldest) break
@@ -52,6 +55,13 @@ export class TtlCache<T> {
   clear() {
     this.entries.clear()
   }
+}
+
+// The settings schema declares a minimum, but that is editor guidance only -- settings.json can still contain zero,
+// negative, or non-numeric values, which would either disable caching entirely or (NaN comparisons are always false)
+// let the cache grow without bound. Fall back instead of trusting the value.
+function normalizeMaxEntries(n: number, fallback: number): number {
+  return Number.isFinite(n) && n >= 1 ? Math.floor(n) : fallback
 }
 
 export interface HeaderReader {

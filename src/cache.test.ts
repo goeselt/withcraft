@@ -33,6 +33,28 @@ describe('TtlCache', () => {
     expect(cache.get('a')).toBeUndefined()
     expect(cache.get('b')).toBeUndefined()
   })
+
+  it('keeps the previous limit when setMaxEntries receives an invalid value', () => {
+    const cache = new TtlCache<string>(2)
+    for (const invalid of [0, -5, Number.NaN]) {
+      cache.setMaxEntries(invalid)
+      cache.set('a', 'A', 60_000)
+      cache.set('b', 'B', 60_000)
+      cache.set('c', 'C', 60_000) // limit of 2 still applies: 'a' is evicted, nothing grows unbounded
+      expect(cache.get('a')).toBeUndefined()
+      expect(cache.get('b')).toBe('B')
+      expect(cache.get('c')).toBe('C')
+    }
+  })
+
+  it('falls back to a sane limit when constructed with an invalid value', () => {
+    const cache = new TtlCache<string>(Number.NaN)
+    cache.set('a', 'A', 60_000)
+    expect(cache.get('a')).toBe('A')
+    cache.setMaxEntries(1)
+    cache.set('b', 'B', 60_000)
+    expect(cache.get('a')).toBeUndefined()
+  })
 })
 
 describe('retryTtlFromHeaders', () => {

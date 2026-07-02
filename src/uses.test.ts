@@ -70,4 +70,27 @@ describe('parseUsesValue', () => {
     expect(parseUsesValue('actions/checkout')).toBeUndefined()
     expect(parseUsesValue('checkout@v6')).toBeUndefined()
   })
+
+  it('rejects owner and repo segments that would traverse the API URL path', () => {
+    expect(parseUsesValue('../repo@v1')).toMatchObject({ kind: 'local-action' })
+    expect(parseUsesValue('owner/..@v1')).toBeUndefined()
+    expect(parseUsesValue('/repo@v1')).toBeUndefined()
+    expect(parseUsesValue('owner/.@v1')).toBeUndefined()
+  })
+
+  it('rejects action path segments that would traverse the API URL path', () => {
+    expect(parseUsesValue('owner/repo/../../../user@v1')).toBeUndefined()
+    expect(parseUsesValue('owner/repo/sub/..@v1')).toBeUndefined()
+    expect(parseUsesValue('owner/repo//sub@v1')).toBeUndefined()
+    expect(parseUsesValue('owner/repo/./sub@v1')).toBeUndefined()
+  })
+
+  it('rejects reusable workflow paths containing traversal segments', () => {
+    expect(parseUsesValue('owner/repo/.github/workflows/../../secret.yml@main')).toBeUndefined()
+  })
+
+  it('rejects refs that are bare dot segments', () => {
+    expect(parseUsesValue('owner/repo@..')).toBeUndefined()
+    expect(parseUsesValue('owner/repo@.')).toBeUndefined()
+  })
 })
