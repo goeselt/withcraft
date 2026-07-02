@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   clearRemoteCache,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  effectiveRequestTimeoutMs,
   isValidHost,
   MAX_RESPONSE_BODY_BYTES,
   normalizeHost,
@@ -620,6 +622,110 @@ describe('resolveRemoteMetadata', () => {
     expect(metadata.source.action?.latest).toBeUndefined()
   })
 
+  it('falls back to latest metadata when a pinned SHA does not exist but the repo has a tag', async () => {
+    const missingSha = '01ceeba31f0d26eaaf8fbb4a60162001ee138d5c'
+    const latestSha = '2222222222222222222222222222222222222222'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) {
+          return jsonResponse([{ name: 'v1.2.0', commit: { sha: latestSha } }])
+        }
+        if (requestUrl.endsWith('/repos/owner/repo/contents/action.yml?ref=v1.2.0')) {
+          return textResponse('name: Intent\ndescription: Latest description\ninputs:\n  token:\n    description: t\n')
+        }
+        // The pinned commit does not exist: content at that ref is absent.
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: missingSha,
+        raw: `owner/repo@${missingSha}`,
+      },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata?.name).toBe('Intent')
+    expect(metadata?.description).toBe('Latest description')
+    // Inputs/outputs belong to a different version and must not be shown for the pinned commit.
+    expect(metadata?.inputs).toEqual([])
+    expect(metadata?.outputs).toEqual([])
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.url).toBe('https://github.com/owner/repo/blob/v1.2.0/action.yml')
+    expect(metadata.source.action?.currentUnresolved).toBe(true)
+    expect(metadata.source.action?.resolvedSha).toBe(missingSha)
+    expect(metadata.source.action?.latest).toMatchObject({ name: 'v1.2.0', sha: latestSha })
+  })
+
+  it('falls back to the default branch HEAD when a pinned SHA is missing in a tagless repo', async () => {
+    const missingSha = '01ceeba31f0d26eaaf8fbb4a60162001ee138d5c'
+    const headSha = '2222222222222222222222222222222222222222'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        if (requestUrl.endsWith('/repos/owner/repo/tags?per_page=100')) return jsonResponse([])
+        if (requestUrl.endsWith('/repos/owner/repo')) return jsonResponse({ default_branch: 'main' })
+        if (requestUrl.endsWith('/repos/owner/repo/commits/main')) return jsonResponse({ sha: headSha })
+        if (requestUrl.endsWith('/repos/owner/repo/contents/action.yml?ref=main')) {
+          return textResponse('name: Intent Main\n')
+        }
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: missingSha,
+        raw: `owner/repo@${missingSha}`,
+      },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata?.name).toBe('Intent Main')
+    expect(metadata?.source.kind).toBe('remote')
+    if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
+    expect(metadata.source.action?.currentUnresolved).toBe(true)
+    expect(metadata.source.action?.latest).toMatchObject({ name: 'main', sha: headSha, isCurrent: false })
+  })
+
+  it('does not fall back when a pinned SHA is missing and the repo does not exist', async () => {
+    const missingSha = '01ceeba31f0d26eaaf8fbb4a60162001ee138d5c'
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Response('not found', { status: 404 })),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      {
+        kind: 'remote-action',
+        owner: 'owner',
+        repo: 'repo',
+        path: '',
+        ref: missingSha,
+        raw: `owner/repo@${missingSha}`,
+      },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata).toBeUndefined()
+  })
+
   it('includes version metadata for remote reusable workflows', async () => {
     const sha = 'df4cb1c069e1874edd31b4311f1884172cec0e10'
     const latestSha = 'a81bbbf8298c0fa03ea29cdc473d45769f953675'
@@ -767,6 +873,32 @@ describe('resolveRemoteMetadata', () => {
     if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
     expect(metadata.source.host).toBe('github.com')
     expect(enterpriseRequested).toBe(false)
+  })
+
+  it('does not inspect tags or version on a host where the action file is absent', async () => {
+    const urls: string[] = []
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string | URL | Request) => {
+        const requestUrl = String(url)
+        urls.push(requestUrl)
+        // Every request 404s: the repo does not exist on this host.
+        return new Response('not found', { status: 404 })
+      }),
+    )
+
+    const metadata = await resolveRemoteMetadata(
+      { kind: 'remote-action', owner: 'owner', repo: 'repo', path: '', ref: 'v1', raw: 'owner/repo@v1' },
+      { hosts: ['github.com'], maxEntries: 100, tokenForHost: () => Promise.resolve<string | undefined>(void 0) },
+    )
+
+    expect(metadata).toBeUndefined()
+    // Only the two content candidates are probed; no tag/branch/repo lookups once the file is known to be absent.
+    expect(urls).toEqual([
+      'https://api.github.com/repos/owner/repo/contents/action.yml?ref=v1',
+      'https://api.github.com/repos/owner/repo/contents/action.yaml?ref=v1',
+    ])
   })
 
   it('shares a single in-flight request across concurrent identical lookups', async () => {
@@ -1126,6 +1258,20 @@ describe('response body size limit', () => {
     expect(metadata?.source.kind).toBe('remote')
     if (metadata?.source.kind !== 'remote') throw new Error('expected remote metadata')
     expect(metadata.source.action).toBeUndefined()
+  })
+})
+
+describe('effectiveRequestTimeoutMs', () => {
+  it('falls back to the default for values that would disable the timeout', () => {
+    expect(effectiveRequestTimeoutMs(undefined)).toBe(DEFAULT_REQUEST_TIMEOUT_MS)
+    expect(effectiveRequestTimeoutMs(0)).toBe(DEFAULT_REQUEST_TIMEOUT_MS)
+    expect(effectiveRequestTimeoutMs(-1)).toBe(DEFAULT_REQUEST_TIMEOUT_MS)
+    expect(effectiveRequestTimeoutMs(Number.NaN)).toBe(DEFAULT_REQUEST_TIMEOUT_MS)
+    expect(effectiveRequestTimeoutMs(Number.POSITIVE_INFINITY)).toBe(DEFAULT_REQUEST_TIMEOUT_MS)
+  })
+
+  it('keeps positive finite values', () => {
+    expect(effectiveRequestTimeoutMs(2500)).toBe(2500)
   })
 })
 

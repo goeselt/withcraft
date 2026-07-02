@@ -68,6 +68,7 @@ workflow calls are supported for both remote references and local `.github/workf
 - Hover on `uses:` shows the action name, description, declared inputs summary, and resolved version.
 - `uses:` hovers can also show declared outputs; input and output sections can be toggled independently.
 - Hover on `with:` input keys shows description, required status, default value, and deprecation notice.
+- Hover on a `with:` key the action does not declare warns about the undeclared input (typo detection).
 - Completion inside `with:` blocks suggests undeclared inputs; required inputs appear first.
 - Completion after `steps.<id>.outputs.` suggests declared outputs for action steps with an `id`.
 - Skips inputs already present in the block to avoid duplicates.
@@ -109,7 +110,8 @@ For `github.com`, Withcraft calls `https://api.github.com`. For GitHub Enterpris
 
 Use **Withcraft: Show Output** or open **Output: Withcraft** to inspect resolver decisions. Use **Withcraft: Refresh
 Metadata** to re-fetch metadata for the active document, or **Withcraft: Clear Cache** to discard all cached remote
-metadata and stored tokens when results appear stale. Log lines are structured for copy/paste debugging:
+metadata and cached token lookups when results appear stale. Tokens stored in secret storage are not affected; remove
+them with **Withcraft: Remove GitHub Token**. Log lines are structured for copy/paste debugging:
 
 ```text
 2026-06-16T08:42:00.000Z INFO resolve.selected {"id":"r7","host":"github.com","hostIndex":0,"durationMs":84,"source":{"host":"github.com","owner":"actions","repo":"setup-node","path":"action.yml","ref":"v6"}}

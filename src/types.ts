@@ -96,6 +96,10 @@ export interface RemoteActionInfo {
   // Resolved semver tag, used for diagnostics logging only (the hover uses pinInfo). Undefined for a bare SHA.
   version: string | undefined
   latest: LatestActionVersion | undefined
+  // Set when the pinned SHA itself could not be fetched (does not exist) and this metadata was resolved from `latest`
+  // as a fallback. The hover then labels current as not found, shows latest, and omits inputs/outputs (which would
+  // otherwise be guessed from a different version). resolvedSha holds the unresolved pinned SHA.
+  currentUnresolved?: boolean
 }
 
 // How a `uses:` ref was resolved. Internal to remote resolution; not exposed on RemoteActionInfo because no consumer

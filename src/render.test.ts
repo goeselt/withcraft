@@ -4,10 +4,12 @@ import {
   COPY_ACTION_REFERENCE_COMMAND,
   esc,
   inputDocumentation,
+  inputInsertText,
   inputSummary,
   outputSummary,
   REFRESH_METADATA_COMMAND,
   titleWithMetadata,
+  undeclaredInputMessage,
 } from './render.js'
 import type { ActionMetadata } from './types.js'
 
@@ -73,12 +75,18 @@ test('titleWithMetadata places the metadata link and a refresh icon next to the 
   )
 })
 
-test('titleWithMetadata renders the refresh icon for local sources too', () => {
+test('titleWithMetadata links the local file and renders the refresh icon', () => {
   const local: ActionMetadata = {
     ...metadata,
-    source: { kind: 'local', path: '/repo/.github/actions/build/action.yml', uri: 'file:///repo/x' },
+    source: {
+      kind: 'local',
+      path: '/repo/.github/actions/build/action.yml',
+      uri: 'file:///repo/.github/actions/build/action.yml',
+    },
   }
-  expect(titleWithMetadata(local, 'fallback')).toBe(`**Setup Node.js environment** (\`action.yml\`) ${refreshIcon}`)
+  expect(titleWithMetadata(local, 'fallback')).toBe(
+    `**Setup Node.js environment** ([\`action.yml\`](file:///repo/.github/actions/build/action.yml)) ${refreshIcon}`,
+  )
 })
 
 test('actionVersionLines renders the canonical action reference', () => {
@@ -226,6 +234,29 @@ test('actionVersionLines renders reusable workflow references with current and l
   ])
 })
 
+test('actionVersionLines marks an unresolved pinned SHA as not found and shows latest', () => {
+  const fallback = structuredClone(metadata)
+  if (fallback.source.kind !== 'remote' || !fallback.source.action) throw new Error('expected remote metadata')
+  fallback.source.action.currentUnresolved = true
+  fallback.source.action.resolvedSha = '01ceeba31f0d26eaaf8fbb4a60162001ee138d5c'
+  fallback.source.action.latest = {
+    name: 'v6.1.0',
+    url: 'https://github.com/actions/setup-node/tree/v6.1.0',
+    sha: 'bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
+    commitUrl: 'https://github.com/actions/setup-node/commit/bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32',
+    isCurrent: false,
+  }
+
+  expect(actionVersionLines(fallback)).toEqual([
+    'Current: `actions/setup-node@01ceeba31f0d26eaaf8fbb4a60162001ee138d5c` -- not found',
+    `Latest: [\`actions/setup-node\`](https://github.com/actions/setup-node)` +
+      `@[\`bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32\`](https://github.com/actions/setup-node/commit/bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32)` +
+      ` # [\`v6.1.0\`](https://github.com/actions/setup-node/tree/v6.1.0) ${copyLink(
+        'actions/setup-node@bbbbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v6.1.0',
+      )}`,
+  ])
+})
+
 test('inputSummary renders the compact input list', () => {
   expect(inputSummary(metadata)).toBe(
     '- **cache-dependency-path**:  Used to specify the path to a dependency file: package\\-lock.json, yarn.lock, etc. Supports wildcards or a list of file names for caching multiple dependencies.\n' +
@@ -265,6 +296,50 @@ test('esc does not escape parentheses in prose text', () => {
 
 test('esc escapes Markdown special characters other than parentheses', () => {
   expect(esc('a [b] *c* _d_ `e` \\f')).toBe('a \\[b\\] \\*c\\* \\_d\\_ \\`e\\` \\\\f')
+})
+
+test('copy links escape parentheses so a path cannot break out of the command link target', () => {
+  const withParens = structuredClone(metadata)
+  if (withParens.source.kind !== 'remote' || !withParens.source.action) throw new Error('expected remote metadata')
+  withParens.source.action.fullName = 'actions/setup-node/docs(v2)'
+
+  const [line] = actionVersionLines(withParens)
+  const copySegment = line.slice(line.indexOf(`command:${COPY_ACTION_REFERENCE_COMMAND}?`))
+  expect(copySegment).not.toContain('(')
+  expect(copySegment.endsWith(')')).toBe(true) // only the closing Markdown link parenthesis remains
+  expect(copySegment).toContain('docs%28v2%29') // parens arrive percent-encoded
+})
+
+test('inputInsertText places the default as an escaped snippet placeholder', () => {
+  expect(
+    inputInsertText({
+      name: 'token',
+      description: '',
+      required: false,
+      // eslint-disable-next-line no-template-curly-in-string -- literal GitHub Actions expression syntax, not interpolation
+      default: '${{ github.token }}',
+      deprecationMessage: undefined,
+    }),
+    // eslint-disable-next-line no-template-curly-in-string -- literal VS Code snippet syntax, not interpolation
+  ).toBe('token: ${1:\\${{ github.token \\}\\}}')
+})
+
+test('inputInsertText uses a bare tab stop when there is no default', () => {
+  expect(
+    inputInsertText({
+      name: 'node-version',
+      description: '',
+      required: true,
+      default: undefined,
+      deprecationMessage: undefined,
+    }),
+  ).toBe('node-version: $1')
+})
+
+test('undeclaredInputMessage names the input and warns', () => {
+  expect(undeclaredInputMessage('node-versoin')).toBe(
+    '$(warning) `node-versoin` is not a declared input of this action.',
+  )
 })
 
 test('outputSummary renders the compact output list', () => {

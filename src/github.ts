@@ -51,6 +51,13 @@ const MAX_TAG_PAGES = 10
 
 export const DEFAULT_REQUEST_TIMEOUT_MS = 5_000
 
+// The settings schema declares a minimum, but settings.json can still contain zero, negative, or non-numeric values.
+// A non-positive timeout would disable the timeout entirely (fetchWithTimeout treats it as "no limit"), so fall back
+// to the default instead of trusting the configured value.
+export function effectiveRequestTimeoutMs(value: number | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : DEFAULT_REQUEST_TIMEOUT_MS
+}
+
 // -- Types ------------------------------------------------------------------------------------------------------------
 
 export interface RemoteResolverOptions {
@@ -220,7 +227,7 @@ async function resolveMetadataAcrossHosts(
     ref: reference.ref,
     path: reference.path,
     hosts,
-    timeoutMs: options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    timeoutMs: effectiveRequestTimeoutMs(options.requestTimeoutMs),
   })
 
   for (const [index, host] of hosts.entries()) {
@@ -333,8 +340,6 @@ async function resolveRemoteMetadataOnHost(
     }
   }
 
-  const inspection = await inspectRemoteAction(uses, host, options)
-
   for (const [i, file] of files.entries()) {
     const key = keys[i]
     const entry = remoteCache.getEntry(key)
@@ -346,7 +351,7 @@ async function resolveRemoteMetadataOnHost(
 
     let promise = inFlight.get(key)
     if (!promise) {
-      promise = fetchRemoteMetadataFile(uses, host, file, inspection, options)
+      promise = fetchRemoteMetadataFile(uses, host, file, options)
       inFlight.set(key, promise)
       void promise.then(
         () => inFlight.delete(key),
@@ -356,6 +361,60 @@ async function resolveRemoteMetadataOnHost(
     const metadata = await promise
     if (metadata) return metadata
   }
+
+  // The pinned ref was not found on this host. For a SHA pin that may just mean the commit no longer exists while the
+  // repo is fine, so fall back to metadata from the latest version (title/description/link only).
+  return resolveLatestFallback(uses, host, options)
+}
+
+// Builds a degraded hover for a SHA pin whose commit does not exist: title, description, and link come from the latest
+// version (tag, or default branch HEAD when untagged), inputs/outputs are omitted rather than guessed from a different
+// version, and the hover marks the pinned SHA as not found. Returns undefined for non-SHA refs or repos with no
+// resolvable latest (e.g. the repo itself is absent on this host).
+async function resolveLatestFallback(
+  uses: RemoteActionReference,
+  host: string,
+  options: RemoteResolverOptions,
+): Promise<ActionMetadata | undefined> {
+  if (!SHA_RE.test(uses.ref)) return undefined
+
+  const cacheKey = `fallback:v1:${host}:${uses.owner}/${uses.repo}:${uses.path}@${uses.ref}`
+  const cached = remoteCache.getEntry(cacheKey)
+  if (cached) {
+    logCacheHit(options, 'metadata', host, cached.data ? 'hit' : 'negative', cacheKey)
+    return cached.data
+  }
+
+  const inspection = await inspectRemoteAction(uses, host, options)
+  const latest = inspection.action?.latest
+  if (!inspection.action || !latest) {
+    remoteCache.set(cacheKey, undefined, inspection.complete ? NOT_FOUND_TTL : TRANSIENT_FAILURE_TTL)
+    return undefined
+  }
+
+  const actionPath = uses.path ? `${uses.path}/` : ''
+  for (const file of [`${actionPath}action.yml`, `${actionPath}action.yaml`]) {
+    const url = `${apiBaseUrl(host)}/repos/${encode(uses.owner)}/${encode(uses.repo)}/contents/${encodePath(file)}?ref=${encode(latest.name)}`
+    const result = await fetchRawGitHubContent(url, host, options)
+    if (!result.ok) continue
+
+    const parsed = parseActionMetadata(result.text, {
+      kind: 'remote',
+      host,
+      owner: uses.owner,
+      repo: uses.repo,
+      path: file,
+      ref: uses.ref,
+      url: blobUrl(host, uses.owner, uses.repo, latest.name, file),
+      action: { ...inspection.action, currentUnresolved: true },
+    })
+    // Keep title/description/link from latest, but drop inputs/outputs -- they belong to a different version.
+    const metadata: ActionMetadata = { ...parsed, inputs: [], outputs: [] }
+    remoteCache.set(cacheKey, metadata, metadataTtlForInspection(uses.ref, inspection))
+    return metadata
+  }
+
+  remoteCache.set(cacheKey, undefined, NOT_FOUND_TTL)
   return undefined
 }
 
@@ -376,7 +435,7 @@ async function fetchRawGitHubContent(
   if (token) headers.Authorization = `Bearer ${token}`
 
   try {
-    const res = await fetchWithTimeout(url, { headers }, options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS)
+    const res = await fetchWithTimeout(url, { headers }, effectiveRequestTimeoutMs(options.requestTimeoutMs))
     if (!res.ok) {
       if (res.status === 404) return { ok: false, cacheMs: NOT_FOUND_TTL }
       if (res.status === 403 || res.status === 429) return { ok: false, cacheMs: retryTtlFromHeaders(res.headers) }
@@ -394,7 +453,6 @@ async function fetchRemoteMetadataFile(
   uses: RemoteActionReference,
   host: string,
   path: string,
-  inspection: RemoteActionInspection,
   options: RemoteResolverOptions,
 ): Promise<ActionMetadata | undefined> {
   const key = `metadata:v1:${host}:${uses.owner}/${uses.repo}:${path}@${uses.ref}`
@@ -404,6 +462,9 @@ async function fetchRemoteMetadataFile(
     remoteCache.set(key, undefined, result.cacheMs)
     return undefined
   }
+  // Only inspect tags/version once the file is confirmed present on this host, so a host that lacks the repo (e.g. a
+  // GHE instance where the action does not exist) does not incur tag/branch/repo lookups on every resolution.
+  const inspection = await inspectRemoteAction(uses, host, options)
   const metadata = parseActionMetadata(result.text, {
     kind: 'remote',
     host,
@@ -642,7 +703,7 @@ async function github<T>(path: string, host: string, options: RemoteResolverOpti
   const res = await fetchWithTimeout(
     `${apiBaseUrl(host)}${path}`,
     { headers },
-    options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+    effectiveRequestTimeoutMs(options.requestTimeoutMs),
   )
   if (!res.ok) throw new GitHubResponseError(res.status, retryTtlFromHeaders(res.headers))
   const text = await readBoundedBody(res)

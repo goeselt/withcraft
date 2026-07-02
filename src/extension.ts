@@ -21,12 +21,14 @@ import {
   esc,
   findInput,
   inputDocumentation,
+  inputInsertText,
   inputSummary,
   outputDocumentation,
   codeEsc,
   outputSummary,
   referenceLabel,
   titleWithMetadata,
+  undeclaredInputMessage,
 } from './render.js'
 import type { ActionMetadata, UsesReference, WorkflowActionStep } from './types.js'
 import {
@@ -153,11 +155,19 @@ async function provideHover(
 
   const inputName = inputNameAtOffset(step, offset)
   if (!inputName) return undefined
-  const input = findInput(metadata, inputName)
-  if (!input) return undefined
-
   const range = step.withInputs.get(inputName)
-  return new vscode.Hover(buildInputHover(input), range ? toRange(document, range.start, range.end) : undefined)
+  const hoverRange = range ? toRange(document, range.start, range.end) : undefined
+
+  const input = findInput(metadata, inputName)
+  if (!input) {
+    // In the latest-version fallback for an unresolved SHA pin the input list is unknown (deliberately emptied),
+    // so staying silent beats a false "not declared" warning.
+    const inputsKnown = !(metadata.source.kind === 'remote' && metadata.source.action?.currentUnresolved)
+    if (!inputsKnown) return undefined
+    return new vscode.Hover(buildUndeclaredInputHover(inputName), hoverRange)
+  }
+
+  return new vscode.Hover(buildInputHover(input), hoverRange)
 }
 
 function buildUsesHover(
@@ -171,8 +181,11 @@ function buildUsesHover(
   if (metadata.description) md.appendMarkdown(`${esc(metadata.description)}\n\n`)
   const actionLines = actionVersionLines(metadata)
   if (actionLines.length > 0) md.appendMarkdown(`${actionLines.join('  \n')}\n\n`)
-  if (options.showInputs) md.appendMarkdown(`**Inputs:**\n\n${inputSummary(metadata)}`)
-  if (options.showOutputs && metadata.outputs.length > 0) {
+  // When metadata is a latest-version fallback for an unresolved SHA pin, inputs/outputs belong to a different version,
+  // so they are omitted rather than shown as if they described the pinned commit.
+  const inputsKnown = !(metadata.source.kind === 'remote' && metadata.source.action?.currentUnresolved)
+  if (options.showInputs && inputsKnown) md.appendMarkdown(`**Inputs:**\n\n${inputSummary(metadata)}`)
+  if (options.showOutputs && inputsKnown && metadata.outputs.length > 0) {
     if (options.showInputs) md.appendMarkdown('\n\n')
     md.appendMarkdown(`**Outputs:**\n\n${outputSummary(metadata)}`)
   }
@@ -187,6 +200,14 @@ function buildInputHover(input: ActionMetadata['inputs'][number]): vscode.Markdo
   if (input.description) md.appendMarkdown(`${esc(input.description)}\n\n`)
   if (input.default) md.appendMarkdown(`Default: \`${codeEsc(input.default)}\`\n\n`)
   if (input.deprecationMessage) md.appendMarkdown(`Deprecated: ${esc(input.deprecationMessage)}`)
+  appendRefreshLink(md)
+  return md
+}
+
+function buildUndeclaredInputHover(inputName: string): vscode.MarkdownString {
+  const md = new vscode.MarkdownString(undefined, true)
+  configureHoverMarkdown(md)
+  md.appendMarkdown(undeclaredInputMessage(inputName))
   appendRefreshLink(md)
   return md
 }
@@ -280,7 +301,7 @@ async function provideCompletionItems(
       documentation.supportHtml = false
       documentation.isTrusted = false
       item.documentation = documentation
-      item.insertText = new vscode.SnippetString(`${input.name}: ${input.default ? `\${1:${input.default}}` : '$1'}`)
+      item.insertText = new vscode.SnippetString(inputInsertText(input))
       item.sortText = `${input.required ? '0' : '1'}-${input.name}`
       return item
     })
