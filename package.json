@@ -152,13 +152,13 @@
     "package": "npx --yes --package @vscode/vsce vsce package --no-dependencies"
   },
   "dependencies": {
-    "yaml": "2.9.0"
+    "yaml": "2.9.1"
   },
   "devDependencies": {
-    "@types/node": "26.1.0",
+    "@types/node": "26.5.1",
     "@types/vscode": "1.120.0",
-    "esbuild": "0.28.1",
-    "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.0"
   }
 }
